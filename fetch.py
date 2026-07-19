@@ -12,13 +12,17 @@ Cost: maximum_bytes_billed guarantees the scan can never exceed the free tier; a
 too-large query fails loudly instead of billing you.
 
 Env / config:
-  GCP_SA_KEY            service-account JSON (string). If unset, uses default creds (ADC).
-  GOOGLE_CLOUD_PROJECT  billing/query project (else taken from the key).
+  GOOGLE_CLOUD_PROJECT  query project. Optional — defaults to whatever project your
+                        Application Default Credentials are scoped to.
   RUN_DATE             'YYYY-MM-DD' event day to score (default: yesterday, UTC).
   MENTION_WINDOW_DAYS   coverage-tail sweep (default 2).
   MAX_GB                byte cap in GB (default 30 -> ~0.03 TB, deep inside the 1 TB/mo free tier).
   ENRICH_TITLES        '1' to scrape real headlines for shown events (default off -> URL-slug titles).
   DRY_RUN              '1' to only print the query's estimated bytes and exit.
+
+Auth: uses Application Default Credentials — `gcloud auth application-default login`
+or GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json locally; google-github-actions/auth
+in CI (see .github/workflows/daily.yml). Works identically in both places.
 """
 from __future__ import annotations
 
@@ -29,16 +33,15 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from google.cloud import bigquery
-from google.oauth2 import service_account
 
 import common as C
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 HUBS_FILE = ROOT / "hubs.json"
 LANES_FILE = ROOT / "lanes.json"
 OUT_FILE = ROOT / "docs" / "data.json"
 HISTORY_FILE = ROOT / "docs" / "history.json"
-QUERY_FILE = Path(__file__).resolve().parent / "query.sql"
+QUERY_FILE = ROOT / "query.sql"
 
 PARAMS = {
     "hub_radius_km": float(os.getenv("HUB_RADIUS_KM", 250)),
@@ -50,12 +53,8 @@ HISTORY_KEEP_DAYS = 60
 
 
 def get_client() -> bigquery.Client:
-    key = os.getenv("GCP_SA_KEY")
-    if key:
-        info = json.loads(key)
-        creds = service_account.Credentials.from_service_account_info(info)
-        project = os.getenv("GOOGLE_CLOUD_PROJECT") or info.get("project_id")
-        return bigquery.Client(credentials=creds, project=project)
+    """Application Default Credentials only — project=None falls back to whatever
+    project the credentials are scoped to, so GOOGLE_CLOUD_PROJECT is optional."""
     return bigquery.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"))
 
 

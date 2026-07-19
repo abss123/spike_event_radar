@@ -1,0 +1,19 @@
+{
+  "_comment": "Origin -> destination lanes for the arc layer. origin/dest must be hub_codes that exist in hubs.json; corridor is a free-text label shown in the UI. This file was missing from the repo and has been reconstructed from the lane list embedded in the committed docs/data.json sample output (which make_sample_data.py generates FROM this file) — the origin/dest/corridor triples below are the ones that produced that exact sample, so this should match the original intent rather than being a guess.",
+  "lanes": [
+    { "origin": "DXB", "dest": "FRA", "corridor": "ME -> EU" },
+    { "origin": "DXB", "dest": "MEM", "corridor": "ME -> US" },
+    { "origin": "SIN", "dest": "DXB", "corridor": "APAC -> ME" },
+    { "origin": "HKG", "dest": "CDG", "corridor": "APAC -> EU" },
+    { "origin": "PVG", "dest": "FRA", "corridor": "APAC -> EU" },
+    { "origin": "CDG", "dest": "MEM", "corridor": "EU -> US" },
+    { "origin": "FRA", "dest": "MEM", "corridor": "EU -> US" },
+    { "origin": "FRA", "dest": "EWR", "corridor": "EU -> US" },
+    { "origin": "HKG", "dest": "MEM", "corridor": "APAC -> US" },
+    { "origin": "CAN", "dest": "MEM", "corridor": "APAC -> US" },
+    { "origin": "PVG", "dest": "MEM", "corridor": "APAC -> US" },
+    { "origin": "PVG", "dest": "ANC", "corridor": "APAC -> US (via AK)" },
+    { "origin": "ICN", "dest": "ANC", "corridor": "APAC -> US (via AK)" },
+    { "origin": "NRT", "dest": "ANC", "corridor": "APAC -> US (via AK)" }
+  ]
+}

@@ -26,18 +26,16 @@ billed), **GitHub Actions** (the scheduler), and **GitHub Pages** (the host).
 
 ```
 hubs.json                  ← YOUR hub list. Add a hub here and it shows up everywhere.
-lanes.json                 ← optional origin→destination lanes for the arc layer
+lanes.json                 ← origin→destination lanes for the arc layer
+query.sql                  ← the BigQuery scan (your scored_events logic, parameterized)
+common.py                  ← shared scoring / attribution / z-score logic
+fetch.py                   ← the daily job: query → score → write data.json
+make_sample_data.py        ← regenerates the offline sample data.json
+requirements.txt
 docs/
   index.html               ← the dashboard (single file). GitHub Pages serves this.
   data.json                ← regenerated daily by the pipeline (starts as sample data)
   history.json             ← rolling per-hub baseline (created on first run)
-pipeline/
-  query.sql                ← the BigQuery scan (your scored_events logic, parameterized)
-  common.py                ← shared scoring / attribution / z-score logic
-  fetch.py                 ← the daily job: query → score → write data.json
-  requirements.txt
-tools/
-  make_sample_data.py      ← regenerates the offline sample data.json
 .github/workflows/daily.yml← the schedule
 ```
 
@@ -69,8 +67,12 @@ these files.
 
 ### 3. Add the key as a repo secret
 Repo → **Settings → Secrets and variables → Actions → New repository secret**:
-- `GCP_SA_KEY` → paste the entire contents of the JSON key file.
-- `GOOGLE_CLOUD_PROJECT` → your project id (optional; read from the key if omitted).
+- `GCP_SA_KEY` → paste the entire contents of the JSON key file. The workflow uses
+  [`google-github-actions/auth`](https://github.com/google-github-actions/auth) to turn
+  this into Application Default Credentials for the run — `fetch.py` never parses the
+  key itself, so the same code path works locally and in CI.
+- `GOOGLE_CLOUD_PROJECT` → your project id (optional; defaults to whatever project the
+  key belongs to).
 
 ### 4. Turn on GitHub Pages
 Repo → **Settings → Pages** → Source: **Deploy from a branch** → branch `main`,
@@ -115,7 +117,7 @@ All knobs are data or environment variables — no logic to edit.
 | Coverage-tail sweep | `MENTION_WINDOW_DAYS` env | 2 days |
 | Event day to score | `RUN_DATE` env | yesterday (UTC) |
 | Query byte cap | `MAX_GB` env | 30 GB |
-| Severity weights | `DEFAULT_WEIGHTS` in `pipeline/common.py` | Goldstein 5, tone 2 |
+| Severity weights | `DEFAULT_WEIGHTS` in `common.py` | Goldstein 5, tone 2 |
 
 **Severity / the Goldstein weight.** Your original SQL used `w_goldstein = -5.0`
 against `ABS(LEAST(Goldstein,0))`, which makes *more* conflictual events score
@@ -143,20 +145,24 @@ the `abs()` in `severity_score()` (see the comment there). You can also switch o
 ## Run it locally
 
 ```bash
-pip install -r pipeline/requirements.txt
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json   # or set GCP_SA_KEY
+pip install -r requirements.txt
+
+# Auth: Application Default Credentials — either a user login or a key file.
+gcloud auth application-default login
+# — or —
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 
 # See how many bytes the scan would read (no cost, nothing runs):
-DRY_RUN=1 python pipeline/fetch.py
+DRY_RUN=1 python fetch.py
 
 # Real run for a specific day:
-RUN_DATE=2026-03-02 python pipeline/fetch.py
+RUN_DATE=2026-03-02 python fetch.py
 
 # Preview the dashboard:
 cd docs && python -m http.server 8000    # then open http://localhost:8000
 
 # Regenerate the offline sample data (no BigQuery needed):
-cd tools && python make_sample_data.py
+python make_sample_data.py
 ```
 
 Turn on real headline scraping with `ENRICH_TITLES=1` (best-effort; falls back to

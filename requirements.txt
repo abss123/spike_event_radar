@@ -1,0 +1,6 @@
+google-cloud-bigquery>=3.20
+
+# Optional: only needed if ENRICH_TITLES=1 (best-effort real headline scraping).
+# requests>=2.31
+# beautifulsoup4>=4.12
+# deep-translator>=1.11

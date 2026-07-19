@@ -7,12 +7,11 @@ a European ground-staff strike, and an APAC storm. Everything downstream (hub in
 z-scores, alert levels, lane impact) is computed by the SAME functions the real
 pipeline uses, so the demo faithfully mirrors production output.
 """
-import os
 import random
-import sys
 from datetime import date, timedelta
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pipeline"))
+ROOT = Path(__file__).resolve().parent
 import common as C
 
 random.seed(20260302)
@@ -55,8 +54,8 @@ EVENTS_RAW = [
     ("Minor demonstration near Incheon cargo gate", "ICN", 0.2, 0.2, "14", 3, -2.4, 0, -1.5, 18, 11, "Protesters", "Airport", "https://en.yna.co.kr/incheon-demo-2026"),
 ]
 
-hubs = C.load_json("../hubs.json")["hubs"]
-lanes_cfg = C.load_json("../lanes.json")["lanes"]
+hubs = C.load_json(ROOT / "hubs.json")["hubs"]
+lanes_cfg = C.load_json(ROOT / "lanes.json")["lanes"]
 hub_by_code = {h["hub_code"]: h for h in hubs}
 
 # Build event dicts with jittered coords near their anchor hub
@@ -115,7 +114,7 @@ for h in hub_records:
 
 lanes = C.rollup_lanes(hub_records, lanes_cfg)
 payload = C.assemble_payload(RUN_DATE, hub_records, lanes, events, PARAMS, is_sample=True)
-C.write_json("../docs/data.json", payload)
+C.write_json(ROOT / "docs" / "data.json", payload)
 
 print(f"Wrote docs/data.json  |  {len(events)} events, {len(hub_records)} hubs, {len(lanes)} lanes")
 print("Alert levels:", {h["hub_code"]: h["alert_level"] for h in hub_records if h["alert_level"] != "normal"})

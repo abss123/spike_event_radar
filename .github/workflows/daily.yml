@@ -24,22 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r pipeline/requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run pipeline
         env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
           RUN_DATE: ${{ github.event.inputs.run_date }}
           MAX_GB: "30"            # hard byte cap -> can never leave the BigQuery free tier
           # ENRICH_TITLES: "1"    # uncomment to scrape real headlines (slower, best-effort)
-        run: python pipeline/fetch.py
+        run: python fetch.py
 
       - name: Commit refreshed data
         run: |
