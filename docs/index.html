@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Air Freight Disruption Watch</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0A0E17; --bg2:#0d1220; --panel:#111726; --panel2:#151c2e;
+    --line:rgba(148,163,184,.14); --line2:rgba(148,163,184,.24);
+    --tx:#E6EAF3; --tx-mut:#8b93a7; --tx-faint:#5b6478;
+    --cyan:#22D3EE;
+    --none:#5b6576; --normal:#22D3EE; --elevated:#FBBF24; --high:#FB5A5A; --extreme:#E879F9;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:'Space Grotesk',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --shadow:0 18px 50px -12px rgba(0,0,0,.7);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--tx);font-family:var(--disp);overflow:hidden;
+    -webkit-font-smoothing:antialiased}
+  #map{position:absolute;inset:0;background:var(--bg);z-index:0}
+  .leaflet-container{background:var(--bg);font-family:var(--disp)}
+  .leaflet-control-attribution{background:rgba(10,14,23,.7)!important;color:var(--tx-faint)!important;
+    font-family:var(--mono);font-size:9px}
+  .leaflet-control-attribution a{color:var(--tx-mut)!important}
+  .leaflet-control-zoom{border:1px solid var(--line)!important;box-shadow:var(--shadow)!important;
+    margin:14px!important}
+  .leaflet-control-zoom a{background:var(--panel)!important;color:var(--tx)!important;
+    border-bottom:1px solid var(--line)!important;width:32px!important;height:32px!important;
+    line-height:32px!important;font-size:17px!important}
+  .leaflet-control-zoom a:hover{background:var(--panel2)!important;color:var(--cyan)!important}
+
+  /* ---------------- hub markers (divIcon) ---------------- */
+  .hub{position:relative;width:100%;height:100%;display:grid;place-items:center;cursor:pointer}
+  .hub .dot{width:var(--r);height:var(--r);border-radius:50%;background:var(--c);
+    box-shadow:0 0 0 2px rgba(10,14,23,.85), 0 0 14px 1px color-mix(in srgb,var(--c) 65%,transparent);
+    transition:transform .15s ease}
+  .hub:hover .dot{transform:scale(1.18)}
+  .hub .ring{position:absolute;inset:0;margin:auto;width:var(--r);height:var(--r);border-radius:50%;
+    border:1.5px solid var(--c);opacity:0}
+  .hub.pulse .ring{animation:pulse 2.4s cubic-bezier(.2,.6,.3,1) infinite}
+  .hub.custom .dot{background:transparent;border:2px dashed var(--cyan);
+    box-shadow:0 0 0 2px rgba(10,14,23,.85)}
+  .hub.sel .dot{outline:2px solid #fff;outline-offset:3px}
+  @keyframes pulse{0%{opacity:.7;transform:scale(1)}100%{opacity:0;transform:scale(4.2)}}
+  .hub-tip{background:var(--panel)!important;border:1px solid var(--line2)!important;color:var(--tx)!important;
+    font-family:var(--mono);font-size:11px;box-shadow:var(--shadow)!important;border-radius:7px!important;
+    padding:5px 9px!important}
+  .hub-tip::before{display:none!important}
+  .hub-tip .tl{color:var(--tx-mut)}
+  .hub-tip .tc{font-weight:700}
+
+  /* ---------------- floating panels ---------------- */
+  .glass{background:linear-gradient(180deg,rgba(20,27,46,.94),rgba(13,18,32,.94));
+    border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+    backdrop-filter:blur(10px)}
+
+  #topbar{position:absolute;top:14px;left:14px;z-index:600;max-width:min(560px,calc(100vw - 28px));
+    padding:13px 15px 12px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .live{width:8px;height:8px;border-radius:50%;background:var(--cyan);
+    box-shadow:0 0 10px 1px var(--cyan);animation:beat 2s ease-in-out infinite;flex:none}
+  @keyframes beat{0%,100%{opacity:.35}50%{opacity:1}}
+  .brand .ey{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--cyan);
+    text-transform:uppercase}
+  .brand h1{margin:1px 0 0;font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.05}
+  .brand .rd{margin-left:auto;text-align:right;font-family:var(--mono);font-size:10px;color:var(--tx-mut);
+    line-height:1.35;padding-left:12px}
+  .brand .rd b{color:var(--tx);font-weight:700;font-size:12px}
+
+  .chips{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+  .chip{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;min-width:64px}
+  .chip .n{font-family:var(--mono);font-size:17px;font-weight:700;line-height:1}
+  .chip .l{font-size:9.5px;color:var(--tx-mut);letter-spacing:.04em;text-transform:uppercase;margin-top:3px}
+  .chip.alert .n{color:var(--high)}
+  .chip .n .u{font-size:10px;color:var(--tx-faint);font-weight:500;margin-left:2px}
+
+  .controls{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:var(--mono);font-size:11px;letter-spacing:.02em;color:var(--tx);
+    background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;transition:.14s}
+  .btn:hover{border-color:var(--line2);color:#fff}
+  .btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .btn.on{background:color-mix(in srgb,var(--cyan) 16%,transparent);border-color:var(--cyan);color:var(--cyan)}
+  .btn .sw{width:22px;height:12px;border-radius:99px;background:var(--line2);position:relative;transition:.14s}
+  .btn.on .sw{background:var(--cyan)}
+  .btn .sw::after{content:"";position:absolute;top:1.5px;left:1.5px;width:9px;height:9px;border-radius:50%;
+    background:#0A0E17;transition:.14s}
+  .btn.on .sw::after{left:11px}
+  select.sel{font-family:var(--mono);font-size:11px;color:var(--tx);background:var(--bg2);
+    border:1px solid var(--line);border-radius:8px;padding:7px 9px;cursor:pointer;max-width:190px}
+  select.sel:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  /* legend */
+  #legend{position:absolute;left:14px;bottom:14px;z-index:600;padding:11px 13px}
+  #legend .lt{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--tx-mut);
+    text-transform:uppercase;margin-bottom:8px}
+  .lg-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:11.5px;color:var(--tx-mut)}
+  .lg-row .d{width:11px;height:11px;border-radius:50%;flex:none}
+  .lg-row .z{font-family:var(--mono);font-size:10px;color:var(--tx-faint);margin-left:auto;padding-left:14px}
+  .lg-note{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:10px;color:var(--tx-faint);
+    max-width:210px;line-height:1.4}
+
+  .sample-badge{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:600;
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:#FBBF24;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);
+    padding:5px 12px;border-radius:99px}
+
+  /* ---------------- dossier drawer ---------------- */
+  #dossier{position:absolute;top:14px;right:14px;bottom:14px;width:384px;max-width:calc(100vw - 28px);
+    z-index:700;display:flex;flex-direction:column;transform:translateX(calc(100% + 20px));
+    transition:transform .34s cubic-bezier(.22,.61,.36,1);overflow:hidden}
+  #dossier.open{transform:none}
+  .dz-head{padding:15px 16px 13px;border-bottom:1px solid var(--line);position:relative}
+  .dz-close{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:7px;border:1px solid var(--line);
+    background:var(--bg2);color:var(--tx-mut);cursor:pointer;font-size:15px;line-height:1;display:grid;place-items:center}
+  .dz-close:hover{color:#fff;border-color:var(--line2)}
+  .dz-code{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:.02em;line-height:1}
+  .dz-name{font-size:13.5px;color:var(--tx);margin-top:4px}
+  .dz-tags{display:flex;gap:7px;margin-top:10px;align-items:center;flex-wrap:wrap}
+  .tag{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:4px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--tx-mut)}
+  .tag.lvl{border:none;font-weight:700;color:#0A0E17}
+
+  .dz-metrics{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);
+    border-bottom:1px solid var(--line)}
+  .metric{background:var(--panel);padding:11px 15px}
+  .metric .mv{font-family:var(--mono);font-size:19px;font-weight:700;line-height:1}
+  .metric .ml{font-size:10px;color:var(--tx-mut);margin-top:4px;letter-spacing:.03em}
+  .metric .mv .u{font-size:11px;color:var(--tx-faint);font-weight:500}
+
+  .dz-spark{padding:12px 15px 8px;border-bottom:1px solid var(--line)}
+  .dz-spark .sh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+  .dz-spark .sh .t{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--tx-mut)}
+  .dz-spark .sh .v{font-family:var(--mono);font-size:10px;color:var(--tx-faint)}
+
+  .dz-list{flex:1;overflow-y:auto;padding:6px 0 10px}
+  .dz-list::-webkit-scrollbar{width:8px}
+  .dz-list::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px}
+  .lh{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--tx-mut);
+    padding:10px 16px 6px;display:flex;justify-content:space-between}
+  .hl{display:block;padding:11px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;
+    transition:background .13s}
+  .hl:hover{background:var(--panel2)}
+  .hl-top{display:flex;gap:9px;align-items:flex-start}
+  .sev{font-family:var(--mono);font-weight:700;font-size:12px;color:#0A0E17;border-radius:6px;padding:3px 7px;
+    flex:none;min-width:38px;text-align:center;line-height:1.15}
+  .hl-t{font-size:13px;line-height:1.32;color:var(--tx);font-weight:500}
+  .hl-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:7px;margin-left:47px}
+  .bdg{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:5px;border:1px solid var(--line);
+    color:var(--tx-mut);white-space:nowrap}
+  .bdg.type{color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 35%,transparent)}
+  .bdg.neg{color:var(--high);border-color:color-mix(in srgb,var(--high) 35%,transparent)}
+  .bdg.fat{color:var(--extreme);border-color:color-mix(in srgb,var(--extreme) 40%,transparent)}
+  .bdg.src{color:var(--tx-faint)}
+  .hl.out{opacity:.62}
+  .hl-empty{padding:22px 16px;color:var(--tx-mut);font-size:12.5px;line-height:1.5}
+  .hl-empty b{color:var(--tx);font-weight:600}
+
+  .dz-empty{flex:1;display:grid;place-items:center;text-align:center;padding:30px}
+  .dz-empty .ic{font-size:26px;opacity:.5;margin-bottom:12px}
+  .dz-empty p{color:var(--tx-mut);font-size:13px;line-height:1.5;max-width:230px;margin:0}
+
+  /* add-hub banner */
+  #addbanner{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:800;
+    display:none;align-items:center;gap:12px;padding:10px 15px;font-size:12.5px}
+  #addbanner.show{display:flex}
+  #addbanner .btn{padding:5px 9px}
+
+  @media (max-width:720px){
+    #topbar{left:8px;right:8px;top:8px;max-width:none;padding:11px 12px}
+    .brand h1{font-size:15px}
+    .chip{flex:1;min-width:0}
+    #legend{display:none}
+    #dossier{top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:64vh;
+      transform:translateY(calc(100% + 20px))}
+    #dossier.open{transform:none}
+    .sample-badge{top:auto;bottom:calc(64vh + 16px)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="topbar" class="glass">
+  <div class="brand">
+    <span class="live"></span>
+    <div>
+      <div class="ey">Air&nbsp;Freight&nbsp;·&nbsp;Disruption&nbsp;Watch</div>
+      <h1>Hub Pressure Monitor</h1>
+    </div>
+    <div class="rd">
+      <div>SCAN DATE</div><b id="rd-date">—</b>
+      <div id="rd-gen" style="margin-top:3px"></div>
+    </div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="controls">
+    <button class="btn" id="btn-lanes"><span class="sw"></span>Lane arcs</button>
+    <select class="sel" id="hub-jump" aria-label="Jump to hub"><option value="">Jump to hub…</option></select>
+    <button class="btn" id="btn-add">＋ Add hub</button>
+  </div>
+</div>
+
+<div class="sample-badge" id="sample-badge" style="display:none">Sample data — connect data.json for live feed</div>
+
+<div id="legend" class="glass">
+  <div class="lt">Alert level · <span style="text-transform:none">σ vs 14-day baseline</span></div>
+  <div class="lg-row"><span class="d" style="background:var(--extreme)"></span>Extreme<span class="z">z ≥ 3</span></div>
+  <div class="lg-row"><span class="d" style="background:var(--high)"></span>High<span class="z">z ≥ 2</span></div>
+  <div class="lg-row"><span class="d" style="background:var(--elevated)"></span>Elevated<span class="z">z ≥ 1</span></div>
+  <div class="lg-row"><span class="d" style="background:var(--normal)"></span>Normal<span class="z">below</span></div>
+  <div class="lg-row"><span class="d" style="background:var(--none)"></span>No signal<span class="z">0 events</span></div>
+  <div class="lg-note">Marker size ∝ disruption index. Click a hub for the headlines driving it.</div>
+</div>
+
+<div id="dossier" class="glass" role="dialog" aria-label="Hub detail">
+  <div id="dz-body"></div>
+</div>
+
+<div id="addbanner" class="glass">
+  <span id="addbanner-txt">Click anywhere on the map to drop a hub</span>
+  <button class="btn" id="btn-add-cancel">Cancel</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* Embedded fallback so the file works with no server. On GitHub Pages the live
+   data.json (committed daily by the pipeline) is fetched instead. */
+const SAMPLE_DATA = /*__DATA__*/ {"schema_version":1,"run_date":"2026-03-02","generated_at":"2026-07-19T00:27:01Z","is_sample":true,"params":{"hub_radius_km":250,"decay_km":150,"top_headlines_per_hub":8,"weights":{"w_goldstein":5.0,"w_tone":2.0,"w_volume":0.0,"w_sources":0.0,"w_fatalities":0.0,"material_conflict_bonus":0.0}},"stats":{"events_total":20,"hubs_in_alert":8,"top_hub":"DXB","top_hub_index":87.44,"top_corridor":"ME -> EU"},"hubs":[{"hub_code":"DXB","hub_name":"Dubai","hub_region":"ME","lat":25.2532,"lon":55.3657,"disruption_index":87.44,"events_within_radius":3,"closest_event_km":26.1,"peak_event_severity":57.2,"z_score":26.63,"alert_level":"extreme","trend":[{"date":"2026-02-17","index":13.57},{"date":"2026-02-18","index":5.74},{"date":"2026-02-19","index":7.29},{"date":"2026-02-20","index":6.99},{"date":"2026-02-21","index":8.76},{"date":"2026-02-22","index":14.04},{"date":"2026-02-23","index":10.46},{"date":"2026-02-24","index":12.37},{"date":"2026-02-25","index":8.69},{"date":"2026-02-26","index":14.94},{"date":"2026-02-27","index":13.06},{"date":"2026-02-28","index":8.7},{"date":"2026-03-01","index":8.62},{"date":"2026-03-02","index":87.44}]},{"hub_code":"DOH","hub_name":"Doha","hub_region":"ME","lat":25.2731,"lon":51.6081,"disruption_index":80.97,"events_within_radius":2,"closest_event_km":18.7,"peak_event_severity":63.2,"z_score":32.72,"alert_level":"extreme","trend":[{"date":"2026-02-17","index":11.63},{"date":"2026-02-18","index":11.29},{"date":"2026-02-19","index":13.07},{"date":"2026-02-20","index":11.26},{"date":"2026-02-21","index":6.23},{"date":"2026-02-22","index":8.0},{"date":"2026-02-23","index":8.89},{"date":"2026-02-24","index":11.24},{"date":"2026-02-25","index":12.07},{"date":"2026-02-26","index":6.16},{"date":"2026-02-27","index":10.73},{"date":"2026-02-28","index":12.16},{"date":"2026-03-01","index":11.12},{"date":"2026-03-02","index":80.97}]},{"hub_code":"IKA","hub_name":"Tehran Imam Khomeini","hub_region":"ME","lat":35.4161,"lon":51.1522,"disruption_index":80.75,"events_within_radius":2,"closest_event_km":31.7,"peak_event_severity":60.3,"z_score":26.71,"alert_level":"extreme","trend":[{"date":"2026-02-17","index":11.47},{"date":"2026-02-18","index":11.61},{"date":"2026-02-19","index":7.01},{"date":"2026-02-20","index":9.9},{"date":"2026-02-21","index":5.58},{"date":"2026-02-22","index":10.67},{"date":"2026-02-23","index":13.76},{"date":"2026-02-24","index":10.96},{"date":"2026-02-25","index":10.72},{"date":"2026-02-26","index":10.56},{"date":"2026-02-27","index":6.88},{"date":"2026-02-28","index":11.44},{"date":"2026-03-01","index":4.26},{"date":"2026-03-02","index":80.75}]},{"hub_code":"CDG","hub_name":"Paris CDG (Europe hub)","hub_region":"EU","lat":49.0097,"lon":2.5479,"disruption_index":52.74,"events_within_radius":2,"closest_event_km":9.2,"peak_event_severity":38.6,"z_score":2.02,"alert_level":"high","trend":[{"date":"2026-02-17","index":41.47},{"date":"2026-02-18","index":39.05},{"date":"2026-02-19","index":37.37},{"date":"2026-02-20","index":36.87},{"date":"2026-02-21","index":48.39},{"date":"2026-02-22","index":35.3},{"date":"2026-02-23","index":44.41},{"date":"2026-02-24","index":47.59},{"date":"2026-02-25","index":48.46},{"date":"2026-02-26","index":46.77},{"date":"2026-02-27","index":36.83},{"date":"2026-02-28","index":27.91},{"date":"2026-03-01","index":39.43},{"date":"2026-03-02","index":52.74}]},{"hub_code":"FRA","hub_name":"Frankfurt","hub_region":"EU","lat":50.0379,"lon":8.5622,"disruption_index":50.15,"events_within_radius":2,"closest_event_km":18.1,"peak_event_severity":34.7,"z_score":1.66,"alert_level":"elevated","trend":[{"date":"2026-02-17","index":38.22},{"date":"2026-02-18","index":40.71},{"date":"2026-02-19","index":40.38},{"date":"2026-02-20","index":39.22},{"date":"2026-02-21","index":44.69},{"date":"2026-02-22","index":44.19},{"date":"2026-02-23","index":51.73},{"date":"2026-02-24","index":33.8},{"date":"2026-02-25","index":32.17},{"date":"2026-02-26","index":30.01},{"date":"2026-02-27","index":49.11},{"date":"2026-02-28","index":36.69},{"date":"2026-03-01","index":40.23},{"date":"2026-03-02","index":50.15}]},{"hub_code":"LEJ","hub_name":"Leipzig","hub_region":"EU","lat":51.4239,"lon":12.2364,"disruption_index":32.74,"events_within_radius":2,"closest_event_km":21.7,"peak_event_severity":31.4,"z_score":1.55,"alert_level":"elevated","trend":[{"date":"2026-02-17","index":23.84},{"date":"2026-02-18","index":31.96},{"date":"2026-02-19","index":27.72},{"date":"2026-02-20","index":28.48},{"date":"2026-02-21","index":24.7},{"date":"2026-02-22","index":26.63},{"date":"2026-02-23","index":21.58},{"date":"2026-02-24","index":29.59},{"date":"2026-02-25","index":19.11},{"date":"2026-02-26","index":24.76},{"date":"2026-02-27","index":26.69},{"date":"2026-02-28","index":26.63},{"date":"2026-03-01","index":34.5},{"date":"2026-03-02","index":32.74}]},{"hub_code":"HKG","hub_name":"Hong Kong","hub_region":"APAC","lat":22.308,"lon":113.9185,"disruption_index":24.07,"events_within_radius":3,"closest_event_km":27.1,"peak_event_severity":15.9,"z_score":1.17,"alert_level":"elevated","trend":[{"date":"2026-02-17","index":25.27},{"date":"2026-02-18","index":12.38},{"date":"2026-02-19","index":28.39},{"date":"2026-02-20","index":16.74},{"date":"2026-02-21","index":16.76},{"date":"2026-02-22","index":20.86},{"date":"2026-02-23","index":13.88},{"date":"2026-02-24","index":16.36},{"date":"2026-02-25","index":19.69},{"date":"2026-02-26","index":16.22},{"date":"2026-02-27","index":20.27},{"date":"2026-02-28","index":9.85},{"date":"2026-03-01","index":21.49},{"date":"2026-03-02","index":24.07}]},{"hub_code":"CAN","hub_name":"Guangzhou","hub_region":"APAC","lat":23.3924,"lon":113.2988,"disruption_index":21.02,"events_within_radius":3,"closest_event_km":15.1,"peak_event_severity":15.9,"z_score":1.61,"alert_level":"elevated","trend":[{"date":"2026-02-17","index":20.13},{"date":"2026-02-18","index":16.56},{"date":"2026-02-19","index":18.25},{"date":"2026-02-20","index":15.83},{"date":"2026-02-21","index":18.27},{"date":"2026-02-22","index":20.22},{"date":"2026-02-23","index":16.23},{"date":"2026-02-24","index":20.17},{"date":"2026-02-25","index":17.08},{"date":"2026-02-26","index":12.25},{"date":"2026-02-27","index":17.43},{"date":"2026-02-28","index":18.09},{"date":"2026-03-01","index":18.75},{"date":"2026-03-02","index":21.02}]},{"hub_code":"PVG","hub_name":"Shanghai Pudong","hub_region":"APAC","lat":31.1443,"lon":121.8083,"disruption_index":20.28,"events_within_radius":1,"closest_event_km":32.6,"peak_event_severity":25.2,"z_score":-0.0,"alert_level":"normal","trend":[{"date":"2026-02-17","index":22.14},{"date":"2026-02-18","index":23.74},{"date":"2026-02-19","index":20.24},{"date":"2026-02-20","index":19.03},{"date":"2026-02-21","index":23.42},{"date":"2026-02-22","index":20.27},{"date":"2026-02-23","index":19.89},{"date":"2026-02-24","index":16.63},{"date":"2026-02-25","index":17.97},{"date":"2026-02-26","index":30.12},{"date":"2026-02-27","index":18.45},{"date":"2026-02-28","index":18.09},{"date":"2026-03-01","index":13.76},{"date":"2026-03-02","index":20.28}]},{"hub_code":"MEM","hub_name":"Memphis SuperHub","hub_region":"US","lat":35.0424,"lon":-89.9767,"disruption_index":16.37,"events_within_radius":1,"closest_event_km":24.7,"peak_event_severity":19.3,"z_score":-0.79,"alert_level":"normal","trend":[{"date":"2026-02-17","index":20.93},{"date":"2026-02-18","index":16.99},{"date":"2026-02-19","index":16.24},{"date":"2026-02-20","index":15.79},{"date":"2026-02-21","index":23.17},{"date":"2026-02-22","index":19.34},{"date":"2026-02-23","index":19.91},{"date":"2026-02-24","index":16.28},{"date":"2026-02-25","index":30.37},{"date":"2026-02-26","index":20.28},{"date":"2026-02-27","index":17.94},{"date":"2026-02-28","index":14.46},{"date":"2026-03-01","index":22.61},{"date":"2026-03-02","index":16.37}]},{"hub_code":"EWR","hub_name":"Newark","hub_region":"US","lat":40.6895,"lon":-74.1745,"disruption_index":14.48,"events_within_radius":1,"closest_event_km":16.8,"peak_event_severity":16.2,"z_score":0.42,"alert_level":"normal","trend":[{"date":"2026-02-17","index":13.37},{"date":"2026-02-18","index":8.8},{"date":"2026-02-19","index":14.29},{"date":"2026-02-20","index":10.86},{"date":"2026-02-21","index":11.9},{"date":"2026-02-22","index":17.01},{"date":"2026-02-23","index":12.43},{"date":"2026-02-24","index":14.12},{"date":"2026-02-25","index":17.15},{"date":"2026-02-26","index":15.98},{"date":"2026-02-27","index":10.27},{"date":"2026-02-28","index":11.99},{"date":"2026-03-01","index":16.14},{"date":"2026-03-02","index":14.48}]},{"hub_code":"LGG","hub_name":"Liege","hub_region":"EU","lat":50.6374,"lon":5.4432,"disruption_index":13.92,"events_within_radius":2,"closest_event_km":214.3,"peak_event_severity":34.7,"z_score":-0.33,"alert_level":"normal","trend":[{"date":"2026-02-17","index":15.26},{"date":"2026-02-18","index":14.6},{"date":"2026-02-19","index":15.62},{"date":"2026-02-20","index":12.99},{"date":"2026-02-21","index":17.64},{"date":"2026-02-22","index":13.28},{"date":"2026-02-23","index":9.68},{"date":"2026-02-24","index":17.06},{"date":"2026-02-25","index":16.42},{"date":"2026-02-26","index":12.89},{"date":"2026-02-27","index":15.63},{"date":"2026-02-28","index":11.81},{"date":"2026-03-01","index":18.59},{"date":"2026-03-02","index":13.92}]},{"hub_code":"SIN","hub_name":"Singapore Changi","hub_region":"APAC","lat":1.3644,"lon":103.9915,"disruption_index":11.88,"events_within_radius":1,"closest_event_km":86.8,"peak_event_severity":21.2,"z_score":0.27,"alert_level":"normal","trend":[{"date":"2026-02-17","index":8.02},{"date":"2026-02-18","index":7.6},{"date":"2026-02-19","index":7.69},{"date":"2026-02-20","index":13.1},{"date":"2026-02-21","index":9.14},{"date":"2026-02-22","index":12.68},{"date":"2026-02-23","index":8.79},{"date":"2026-02-24","index":14.44},{"date":"2026-02-25","index":16.95},{"date":"2026-02-26","index":10.39},{"date":"2026-02-27","index":16.38},{"date":"2026-02-28","index":10.27},{"date":"2026-03-01","index":7.54},{"date":"2026-03-02","index":11.88}]},{"hub_code":"ICN","hub_name":"Seoul Incheon","hub_region":"APAC","lat":37.4602,"lon":126.4407,"disruption_index":10.18,"events_within_radius":1,"closest_event_km":28.4,"peak_event_severity":12.3,"z_score":-0.34,"alert_level":"normal","trend":[{"date":"2026-02-17","index":12.98},{"date":"2026-02-18","index":16.86},{"date":"2026-02-19","index":10.04},{"date":"2026-02-20","index":10.29},{"date":"2026-02-21","index":10.66},{"date":"2026-02-22","index":9.92},{"date":"2026-02-23","index":13.79},{"date":"2026-02-24","index":14.2},{"date":"2026-02-25","index":7.15},{"date":"2026-02-26","index":7.02},{"date":"2026-02-27","index":11.36},{"date":"2026-02-28","index":11.94},{"date":"2026-03-01","index":8.24},{"date":"2026-03-02","index":10.18}]},{"hub_code":"IND","hub_name":"Indianapolis Hub","hub_region":"US","lat":39.7173,"lon":-86.2944,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.91,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.0},{"date":"2026-02-18","index":0.47},{"date":"2026-02-19","index":0.0},{"date":"2026-02-20","index":0.43},{"date":"2026-02-21","index":0.0},{"date":"2026-02-22","index":0.0},{"date":"2026-02-23","index":0.0},{"date":"2026-02-24","index":0.93},{"date":"2026-02-25","index":0.7},{"date":"2026-02-26","index":0.21},{"date":"2026-02-27","index":0.27},{"date":"2026-02-28","index":0.76},{"date":"2026-03-01","index":0.03},{"date":"2026-03-02","index":0.0}]},{"hub_code":"ANC","hub_name":"Anchorage (transpac stop)","hub_region":"US","lat":61.1743,"lon":-149.9962,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.97,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.0},{"date":"2026-02-18","index":0.35},{"date":"2026-02-19","index":0.0},{"date":"2026-02-20","index":0.53},{"date":"2026-02-21","index":0.0},{"date":"2026-02-22","index":0.66},{"date":"2026-02-23","index":0.0},{"date":"2026-02-24","index":0.45},{"date":"2026-02-25","index":0.09},{"date":"2026-02-26","index":0.0},{"date":"2026-02-27","index":0.16},{"date":"2026-02-28","index":0.21},{"date":"2026-03-01","index":0.6},{"date":"2026-03-02","index":0.0}]},{"hub_code":"OAK","hub_name":"Oakland","hub_region":"US","lat":37.7213,"lon":-122.221,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.88,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.15},{"date":"2026-02-18","index":0.03},{"date":"2026-02-19","index":0.53},{"date":"2026-02-20","index":0.0},{"date":"2026-02-21","index":0.64},{"date":"2026-02-22","index":0.18},{"date":"2026-02-23","index":0.0},{"date":"2026-02-24","index":0.0},{"date":"2026-02-25","index":0.2},{"date":"2026-02-26","index":0.76},{"date":"2026-02-27","index":0.21},{"date":"2026-02-28","index":0.15},{"date":"2026-03-01","index":0.0},{"date":"2026-03-02","index":0.0}]},{"hub_code":"STN","hub_name":"London Stansted","hub_region":"EU","lat":51.885,"lon":0.235,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.78,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.11},{"date":"2026-02-18","index":0.0},{"date":"2026-02-19","index":0.42},{"date":"2026-02-20","index":0.0},{"date":"2026-02-21","index":0.78},{"date":"2026-02-22","index":0.91},{"date":"2026-02-23","index":0.0},{"date":"2026-02-24","index":0.0},{"date":"2026-02-25","index":0.46},{"date":"2026-02-26","index":0.05},{"date":"2026-02-27","index":0.0},{"date":"2026-02-28","index":0.0},{"date":"2026-03-01","index":0.42},{"date":"2026-03-02","index":0.0}]},{"hub_code":"NRT","hub_name":"Tokyo Narita","hub_region":"APAC","lat":35.772,"lon":140.3929,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.61,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.21},{"date":"2026-02-18","index":0.0},{"date":"2026-02-19","index":0.0},{"date":"2026-02-20","index":0.27},{"date":"2026-02-21","index":0.0},{"date":"2026-02-22","index":0.0},{"date":"2026-02-23","index":0.0},{"date":"2026-02-24","index":0.03},{"date":"2026-02-25","index":0.0},{"date":"2026-02-26","index":0.53},{"date":"2026-02-27","index":0.0},{"date":"2026-02-28","index":0.63},{"date":"2026-03-01","index":0.0},{"date":"2026-03-02","index":0.0}]},{"hub_code":"TPE","hub_name":"Taipei Taoyuan","hub_region":"APAC","lat":25.0777,"lon":121.2328,"disruption_index":0.0,"events_within_radius":0,"closest_event_km":null,"peak_event_severity":null,"z_score":-0.67,"alert_level":"none","trend":[{"date":"2026-02-17","index":0.0},{"date":"2026-02-18","index":0.46},{"date":"2026-02-19","index":0.17},{"date":"2026-02-20","index":0.0},{"date":"2026-02-21","index":0.0},{"date":"2026-02-22","index":0.16},{"date":"2026-02-23","index":0.07},{"date":"2026-02-24","index":0.0},{"date":"2026-02-25","index":0.0},{"date":"2026-02-26","index":0.0},{"date":"2026-02-27","index":0.62},{"date":"2026-02-28","index":0.09},{"date":"2026-03-01","index":0.08},{"date":"2026-03-02","index":0.0}]}],"lanes":[{"origin":"DXB","dest":"FRA","corridor":"ME -> EU","origin_pressure":87.44,"dest_pressure":50.15,"lane_impact_index":137.59,"o_lat":25.2532,"o_lon":55.3657,"d_lat":50.0379,"d_lon":8.5622},{"origin":"DXB","dest":"MEM","corridor":"ME -> US","origin_pressure":87.44,"dest_pressure":16.37,"lane_impact_index":103.81,"o_lat":25.2532,"o_lon":55.3657,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"SIN","dest":"DXB","corridor":"APAC -> ME","origin_pressure":11.88,"dest_pressure":87.44,"lane_impact_index":99.32,"o_lat":1.3644,"o_lon":103.9915,"d_lat":25.2532,"d_lon":55.3657},{"origin":"HKG","dest":"CDG","corridor":"APAC -> EU","origin_pressure":24.07,"dest_pressure":52.74,"lane_impact_index":76.81,"o_lat":22.308,"o_lon":113.9185,"d_lat":49.0097,"d_lon":2.5479},{"origin":"PVG","dest":"FRA","corridor":"APAC -> EU","origin_pressure":20.28,"dest_pressure":50.15,"lane_impact_index":70.43,"o_lat":31.1443,"o_lon":121.8083,"d_lat":50.0379,"d_lon":8.5622},{"origin":"CDG","dest":"MEM","corridor":"EU -> US","origin_pressure":52.74,"dest_pressure":16.37,"lane_impact_index":69.11,"o_lat":49.0097,"o_lon":2.5479,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"FRA","dest":"MEM","corridor":"EU -> US","origin_pressure":50.15,"dest_pressure":16.37,"lane_impact_index":66.52,"o_lat":50.0379,"o_lon":8.5622,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"FRA","dest":"EWR","corridor":"EU -> US","origin_pressure":50.15,"dest_pressure":14.48,"lane_impact_index":64.63,"o_lat":50.0379,"o_lon":8.5622,"d_lat":40.6895,"d_lon":-74.1745},{"origin":"HKG","dest":"MEM","corridor":"APAC -> US","origin_pressure":24.07,"dest_pressure":16.37,"lane_impact_index":40.44,"o_lat":22.308,"o_lon":113.9185,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"CAN","dest":"MEM","corridor":"APAC -> US","origin_pressure":21.02,"dest_pressure":16.37,"lane_impact_index":37.39,"o_lat":23.3924,"o_lon":113.2988,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"PVG","dest":"MEM","corridor":"APAC -> US","origin_pressure":20.28,"dest_pressure":16.37,"lane_impact_index":36.65,"o_lat":31.1443,"o_lon":121.8083,"d_lat":35.0424,"d_lon":-89.9767},{"origin":"PVG","dest":"ANC","corridor":"APAC -> US (via AK)","origin_pressure":20.28,"dest_pressure":0.0,"lane_impact_index":20.28,"o_lat":31.1443,"o_lon":121.8083,"d_lat":61.1743,"d_lon":-149.9962},{"origin":"ICN","dest":"ANC","corridor":"APAC -> US (via AK)","origin_pressure":10.18,"dest_pressure":0.0,"lane_impact_index":10.18,"o_lat":37.4602,"o_lon":126.4407,"d_lat":61.1743,"d_lon":-149.9962},{"origin":"NRT","dest":"ANC","corridor":"APAC -> US (via AK)","origin_pressure":0.0,"dest_pressure":0.0,"lane_impact_index":0.0,"o_lat":35.772,"o_lon":140.3929,"d_lat":61.1743,"d_lon":-149.9962}],"events":[{"id":100002,"severity":63.2,"event_name":"Fight / Military & Tactical Fire","quad_class":4,"location":"Doha area","country":"ME","lat":25.5731,"lon":51.2581,"tone":-9.1,"fatalities":0,"goldstein":-9.0,"mentions":64,"sources":29,"actor1":"Iran","actor2":"Gulf Cooperation Council","title":"Missile test near shipping lane rattles cargo operators","url":"https://www.bloomberg.com/news/articles/2026-03-02/missile-test-cargo","source":"bloomberg.com"},{"id":100005,"severity":60.3,"event_name":"Fight / Military & Tactical Fire","quad_class":4,"location":"Tehran Imam Khomeini area","country":"ME","lat":35.7661,"lon":50.9522,"tone":-8.9,"fatalities":2,"goldstein":-8.5,"mentions":47,"sources":21,"actor1":"Iran","actor2":"Unknown","title":"Air-defence activity reported north of Tehran airport","url":"https://www.reuters.com/world/middle-east/tehran-air-defence-2026","source":"reuters.com"},{"id":100001,"severity":57.2,"event_name":"Force Posture / Mobilization / Blockade","quad_class":4,"location":"Dubai area","country":"ME","lat":24.8532,"lon":55.9657,"tone":-8.6,"fatalities":0,"goldstein":-8.0,"mentions":88,"sources":41,"actor1":"Military","actor2":"Iran","title":"Carriers reroute around Strait of Hormuz after military build-up","url":"https://www.aljazeera.com/news/2026/3/2/hormuz-reroute-flights","source":"aljazeera.com"},{"id":100000,"severity":48.1,"event_name":"Coerce / Geopolitical Threats","quad_class":3,"location":"Dubai area","country":"ME","lat":25.4032,"lon":55.5657,"tone":-7.8,"fatalities":0,"goldstein":-6.5,"mentions":71,"sources":34,"actor1":"United Arab Emirates","actor2":"Iran","title":"Gulf states warn airlines over airspace risk as tensions climb","url":"https://www.reuters.com/world/middle-east/gulf-airspace-warning-2026-03-02","source":"reuters.com"},{"id":100004,"severity":43.8,"event_name":"Reduce Relations / Embargo / Sanctions","quad_class":3,"location":"Tehran Imam Khomeini area","country":"ME","lat":35.6161,"lon":51.4022,"tone":-6.9,"fatalities":0,"goldstein":-6.0,"mentions":55,"sources":26,"actor1":"United States","actor2":"Iran","title":"Sanctions threat clouds Tehran overflight permissions","url":"https://apnews.com/article/iran-overflight-sanctions-2026","source":"apnews.com"},{"id":100003,"severity":39.9,"event_name":"Coerce / Geopolitical Threats","quad_class":3,"location":"Doha area","country":"ME","lat":25.1731,"lon":51.7581,"tone":-6.2,"fatalities":0,"goldstein":-5.5,"mentions":42,"sources":22,"actor1":"Qatar","actor2":"Unknown","title":"Doha hub adds security screening as regional threat level rises","url":"https://www.thenationalnews.com/gulf/2026/03/02/doha-screening","source":"thenationalnews.com"},{"id":100007,"severity":38.6,"event_name":"Protest / Strike","quad_class":3,"location":"Paris CDG area","country":"EU","lat":49.0597,"lon":2.6479,"tone":-6.8,"fatalities":0,"goldstein":-5.0,"mentions":96,"sources":44,"actor1":"Labor Union","actor2":"Aeroports de Paris","title":"Ground-staff strike grounds cargo flights at Paris CDG","url":"https://www.lemonde.fr/economie/article/2026/03/02/cdg-greve-fret","source":"lemonde.fr"},{"id":100008,"severity":34.7,"event_name":"Protest / Strike","quad_class":3,"location":"Frankfurt area","country":"EU","lat":50.1379,"lon":8.3622,"tone":-6.1,"fatalities":0,"goldstein":-4.5,"mentions":78,"sources":37,"actor1":"Verdi","actor2":"Fraport","title":"Union pickets spread to Frankfurt as pay talks collapse","url":"https://www.dw.com/en/frankfurt-strike-cargo-2026","source":"dw.com"},{"id":100006,"severity":33.3,"event_name":"Reduce Relations / Embargo / Sanctions","quad_class":3,"location":"Dubai area","country":"ME","lat":26.1532,"lon":56.4657,"tone":-5.4,"fatalities":0,"goldstein":-4.5,"mentions":33,"sources":19,"actor1":"Lloyds","actor2":"Gulf","title":"Insurers hike war-risk premiums on Gulf air cargo","url":"https://www.ft.com/content/gulf-war-risk-premium-2026","source":"ft.com"},{"id":100009,"severity":31.4,"event_name":"Protest / Strike","quad_class":3,"location":"Leipzig area","country":"EU","lat":51.2739,"lon":12.4364,"tone":-5.7,"fatalities":0,"goldstein":-4.0,"mentions":51,"sources":24,"actor1":"Labor Union","actor2":"DHL Hub","title":"Handlers walk out at Leipzig sorting centre overnight","url":"https://www.reuters.com/business/leipzig-handlers-strike-2026","source":"reuters.com"},{"id":100011,"severity":29.4,"event_name":"Protest / Strike","quad_class":3,"location":"Frankfurt area","country":"EU","lat":50.5379,"lon":8.9622,"tone":-5.2,"fatalities":0,"goldstein":-3.8,"mentions":39,"sources":20,"actor1":"Fraport","actor2":"Airlines","title":"Frankfurt slot cancellations ripple across European network","url":"https://www.aviation-news.eu/frankfurt-slots-2026","source":"aviation-news.eu"},{"id":100010,"severity":27.3,"event_name":"Protest / Strike","quad_class":3,"location":"Paris CDG area","country":"EU","lat":48.4097,"lon":2.0479,"tone":-4.9,"fatalities":0,"goldstein":-3.5,"mentions":44,"sources":21,"actor1":"Farmers","actor2":"Government of France","title":"Farmers block roads near Paris freight terminals","url":"https://www.france24.com/en/europe/20260302-paris-farmer-blockade","source":"france24.com"},{"id":100014,"severity":25.2,"event_name":"Protest / Strike","quad_class":3,"location":"Shanghai Pudong area","country":"APAC","lat":30.9443,"lon":122.0583,"tone":-4.6,"fatalities":0,"goldstein":-3.2,"mentions":40,"sources":19,"actor1":"Workers","actor2":"Port Authority","title":"Port protest snarls trucking to Shanghai Pudong","url":"https://www.reuters.com/world/china/shanghai-port-protest-2026","source":"reuters.com"},{"id":100018,"severity":21.2,"event_name":"Reduce Relations / Embargo / Sanctions","quad_class":3,"location":"Singapore Changi area","country":"APAC","lat":1.9644,"lon":104.4915,"tone":-3.6,"fatalities":0,"goldstein":-2.8,"mentions":26,"sources":14,"actor1":"United States","actor2":"Unknown","title":"Sanctions review touches select cargo routes via Singapore","url":"https://www.straitstimes.com/business/singapore-sanctions-review-2026","source":"straitstimes.com"},{"id":100016,"severity":19.3,"event_name":"Protest / Strike","quad_class":3,"location":"Memphis SuperHub area","country":"US","lat":35.1924,"lon":-89.7767,"tone":-3.4,"fatalities":0,"goldstein":-2.5,"mentions":31,"sources":16,"actor1":"Protesters","actor2":"Company","title":"Protest outside Memphis facility briefly halts trucks","url":"https://www.commercialappeal.com/memphis-protest-2026","source":"commercialappeal.com"},{"id":100017,"severity":16.2,"event_name":"Protest / Strike","quad_class":3,"location":"Newark area","country":"US","lat":40.7895,"lon":-74.3245,"tone":-3.1,"fatalities":0,"goldstein":-2.0,"mentions":24,"sources":13,"actor1":"Labor Union","actor2":"Airport","title":"Newark ramp workers rally over scheduling dispute","url":"https://www.nj.com/newark-ramp-rally-2026","source":"nj.com"},{"id":100012,"severity":15.9,"event_name":"Protest / Strike","quad_class":1,"location":"Hong Kong area","country":"APAC","lat":22.508,"lon":114.0685,"tone":-4.2,"fatalities":0,"goldstein":-1.5,"mentions":82,"sources":38,"actor1":null,"actor2":null,"title":"Severe storm shuts runways across the Pearl River Delta","url":"https://www.scmp.com/news/hong-kong/weather/2026/03/02/prd-storm","source":"scmp.com"},{"id":100013,"severity":12.6,"event_name":"Protest / Strike","quad_class":1,"location":"Guangzhou area","country":"APAC","lat":23.4924,"lon":113.1988,"tone":-3.8,"fatalities":0,"goldstein":-1.0,"mentions":47,"sources":22,"actor1":null,"actor2":null,"title":"Guangzhou cargo backlog builds after weather closures","url":"https://www.chinadaily.com.cn/guangzhou-cargo-2026","source":"chinadaily.com.cn"},{"id":100019,"severity":12.3,"event_name":"Protest / Strike","quad_class":3,"location":"Seoul Incheon area","country":"APAC","lat":37.6602,"lon":126.6407,"tone":-2.4,"fatalities":0,"goldstein":-1.5,"mentions":18,"sources":11,"actor1":"Protesters","actor2":"Airport","title":"Minor demonstration near Incheon cargo gate","url":"https://en.yna.co.kr/incheon-demo-2026","source":"en.yna.co.kr"},{"id":100015,"severity":8.3,"event_name":"Protest / Strike","quad_class":1,"location":"Hong Kong area","country":"APAC","lat":21.958,"lon":113.7185,"tone":-2.9,"fatalities":0,"goldstein":-0.5,"mentions":28,"sources":15,"actor1":null,"actor2":null,"title":"Typhoon warning lifted but delays persist at Hong Kong","url":"https://www.hongkongfp.com/2026/03/02/typhoon-delays","source":"hongkongfp.com"}]} /*__END__*/;
+
+const ALERT = {
+  none:{c:'#5b6576',h:'#5b6576',label:'No signal'},
+  normal:{c:'#22D3EE',h:'#22D3EE',label:'Normal'},
+  elevated:{c:'#FBBF24',h:'#FBBF24',label:'Elevated'},
+  high:{c:'#FB5A5A',h:'#FB5A5A',label:'High'},
+  extreme:{c:'#E879F9',h:'#E879F9',label:'Extreme'},
+};
+const R_EARTH = 6371.0088;
+function haversine(a,b,c,d){const r=x=>x*Math.PI/180;const dp=r(c-a),dl=r(d-b);
+  const s=Math.sin(dp/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dl/2)**2;
+  return 2*R_EARTH*Math.asin(Math.min(1,Math.sqrt(s)));}
+function sevColor(s){return s>=40?'#E879F9':s>=25?'#FB5A5A':s>=12?'#FBBF24':'#22D3EE';}
+function esc(t){return (t==null?'':String(t)).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+
+let DATA, map, hubLayer, laneLayer, markers={}, selected=null, sessionHubs=[], placing=false, lanesOn=false;
+
+async function boot(){
+  try{
+    const r = await fetch('./data.json',{cache:'no-store'});
+    if(!r.ok) throw 0;
+    DATA = await r.json();
+  }catch(e){
+    DATA = SAMPLE_DATA;
+  }
+  if(!DATA){document.getElementById('map').innerHTML='<div style="display:grid;place-items:center;height:100%;color:#8b93a7;font-family:var(--mono)">No data.json found.</div>';return;}
+  initMap(); renderHeader(); renderHubs(); renderLanes(); buildHubJump();
+  if(DATA.is_sample){document.getElementById('sample-badge').style.display='block';}
+}
+
+function initMap(){
+  map = L.map('map',{zoomControl:true,minZoom:2,maxZoom:9,worldCopyJump:true,
+    attributionControl:true}).setView([30,20],2.4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    subdomains:'abcd',maxZoom:9,
+    attribution:'© OpenStreetMap · © CARTO'
+  }).addTo(map);
+  laneLayer = L.layerGroup().addTo(map);
+  hubLayer  = L.layerGroup().addTo(map);
+  map.on('click',onMapClick);
+  const pts = DATA.hubs.map(h=>[h.lat,h.lon]);
+  if(pts.length) map.fitBounds(pts,{padding:[70,70],maxZoom:4});
+}
+
+function renderHeader(){
+  document.getElementById('rd-date').textContent = DATA.run_date || '—';
+  if(DATA.generated_at) document.getElementById('rd-gen').textContent = 'upd '+DATA.generated_at.replace('T',' ').replace('Z',' UTC');
+  const s = DATA.stats||{};
+  const chips = [
+    {n:s.events_total??'—', l:'Events tracked'},
+    {n:s.hubs_in_alert??'—', l:'Hubs in alert', alert:true},
+    {n:s.top_hub??'—', l:'Peak hub'},
+  ];
+  document.getElementById('chips').innerHTML = chips.map(c=>
+    `<div class="chip ${c.alert?'alert':''}"><div class="n">${esc(c.n)}</div><div class="l">${esc(c.l)}</div></div>`).join('');
+}
+
+function allHubs(){return DATA.hubs.concat(sessionHubs);}
+
+function makeIcon(h){
+  const lv = ALERT[h.alert_level]||ALERT.none;
+  const r = Math.max(9, Math.min(30, 9 + Math.sqrt(h.disruption_index||0)*2.1));
+  const pulse = (h.alert_level==='high'||h.alert_level==='extreme')?'pulse':'';
+  const custom = h._custom?'custom':'';
+  const selc = (selected && selected.hub_code===h.hub_code && selected._custom===h._custom)?'sel':'';
+  const html = `<div class="hub ${pulse} ${custom} ${selc}" style="--c:${lv.c};--r:${r}px">
+      <span class="ring"></span><span class="dot"></span></div>`;
+  return L.divIcon({html,className:'',iconSize:[64,64],iconAnchor:[32,32]});
+}
+
+function renderHubs(){
+  hubLayer.clearLayers(); markers={};
+  allHubs().forEach(h=>{
+    const m = L.marker([h.lat,h.lon],{icon:makeIcon(h),keyboard:false,
+      zIndexOffset:(h.alert_level==='extreme'?400:h.alert_level==='high'?300:h._custom?350:0)}).addTo(hubLayer);
+    m.bindTooltip(`<span class="tl">${esc(h.hub_code)}</span> · <span class="tc" style="color:${(ALERT[h.alert_level]||ALERT.none).h}">${(ALERT[h.alert_level]||ALERT.none).label}</span>`,
+      {className:'hub-tip',direction:'top',offset:[0,-8]});
+    m.on('click',(e)=>{L.DomEvent.stopPropagation(e);selectHub(h);});
+    markers[h.hub_code+(h._custom?'*':'')] = m;
+  });
+}
+
+/* headlines within radius, sorted by severity — same rule the pipeline uses */
+function headlinesFor(h){
+  const R = (DATA.params&&DATA.params.hub_radius_km)||250;
+  const N = (DATA.params&&DATA.params.top_headlines_per_hub)||8;
+  const scored = DATA.events.map(e=>({e,d:haversine(h.lat,h.lon,e.lat,e.lon)}));
+  const within = scored.filter(x=>x.d<=R).sort((a,b)=>b.e.severity-a.e.severity);
+  if(within.length) return {rows:within.slice(0,N),inside:true,R};
+  const near = scored.sort((a,b)=>a.d-b.d).slice(0,3);
+  return {rows:near,inside:false,R};
+}
+
+function sparkline(trend){
+  if(!trend||trend.length<3) return '';
+  const w=352,h=46,pad=3;
+  const vals=trend.map(p=>p.index);
+  const hist=vals.slice(0,-1), today=vals[vals.length-1];
+  const mean=hist.reduce((a,b)=>a+b,0)/hist.length;
+  const sd=Math.sqrt(hist.reduce((a,b)=>a+(b-mean)**2,0)/hist.length);
+  const lo=Math.min(...vals,mean-sd), hi=Math.max(...vals,mean+sd)||1;
+  const X=i=>pad+i*(w-2*pad)/(trend.length-1);
+  const Y=v=>h-pad-((v-lo)/((hi-lo)||1))*(h-2*pad);
+  const line=vals.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const bandT=Y(mean+sd),bandB=Y(mean-sd);
+  const lastX=X(trend.length-1),lastY=Y(today);
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+    <rect x="0" y="${bandT.toFixed(1)}" width="${w}" height="${Math.max(0,bandB-bandT).toFixed(1)}" fill="rgba(139,147,167,.12)"/>
+    <line x1="0" y1="${Y(mean).toFixed(1)}" x2="${w}" y2="${Y(mean).toFixed(1)}" stroke="rgba(139,147,167,.4)" stroke-dasharray="2 3" stroke-width="1"/>
+    <path d="${line}" fill="none" stroke="#22D3EE" stroke-width="1.6"/>
+    <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="3.2" fill="#fff"/>
+  </svg>`;
+}
+
+function selectHub(h){
+  selected=h; renderHubs();
+  map.flyTo([h.lat,h.lon], Math.max(map.getZoom(),4), {duration:.6});
+  const lv = ALERT[h.alert_level]||ALERT.none;
+  const {rows,inside,R} = headlinesFor(h);
+  const z = (h.z_score===null||h.z_score===undefined)?'—':(h.z_score>0?'+':'')+h.z_score;
+  const metrics = [
+    {v:(h.disruption_index??0).toFixed(1),l:'Disruption index'},
+    {v:z,u:z==='—'?'':'σ',l:'vs 14-day baseline'},
+    {v:h.events_within_radius??0,l:`Events ≤ ${R} km`},
+    {v:h.closest_event_km==null?'—':h.closest_event_km,u:h.closest_event_km==null?'':'km',l:'Nearest event'},
+  ];
+  let list;
+  if(!rows.length){
+    list = `<div class="hl-empty"><b>No disruption events</b> found in today's feed near this hub.</div>`;
+  }else{
+    const head = `<div class="lh"><span>${inside?'Top headlines by severity':'Nearest events (outside '+R+' km)'}</span><span>${rows.length}</span></div>`;
+    list = head + rows.map(({e,d})=>{
+      const badges = [
+        `<span class="bdg type">${esc(e.event_name)}</span>`,
+        e.tone!=null?`<span class="bdg neg">tone ${e.tone.toFixed(1)}</span>`:'',
+        e.fatalities?`<span class="bdg fat">${e.fatalities} killed</span>`:'',
+        `<span class="bdg">${Math.round(d)} km</span>`,
+        e.source?`<span class="bdg src">${esc(e.source)}</span>`:'',
+      ].filter(Boolean).join('');
+      return `<a class="hl ${inside?'':'out'}" href="${esc(e.url)}" target="_blank" rel="noopener">
+        <div class="hl-top">
+          <span class="sev" style="background:${sevColor(e.severity)}">${e.severity.toFixed(0)}</span>
+          <span class="hl-t">${esc(e.title)}</span>
+        </div>
+        <div class="hl-meta">${badges}</div></a>`;
+    }).join('');
+  }
+  const rmBtn = h._custom?`<button class="btn" id="rm-pin" style="margin-top:10px;padding:5px 9px">Remove pin</button>`:'';
+  document.getElementById('dz-body').innerHTML = `
+    <div class="dz-head">
+      <button class="dz-close" aria-label="Close" onclick="closeDossier()">✕</button>
+      <div class="dz-code">${esc(h.hub_code)}</div>
+      <div class="dz-name">${esc(h.hub_name)}</div>
+      <div class="dz-tags">
+        <span class="tag lvl" style="background:${lv.h}">${lv.label}</span>
+        <span class="tag">${esc(h.hub_region||'—')}</span>
+        ${h._custom?'<span class="tag" style="border-color:var(--cyan);color:var(--cyan)">Session pin</span>':''}
+      </div>${rmBtn}
+    </div>
+    <div class="dz-metrics">${metrics.map(m=>`<div class="metric"><div class="mv">${esc(m.v)}${m.u?`<span class="u"> ${m.u}</span>`:''}</div><div class="ml">${esc(m.l)}</div></div>`).join('')}</div>
+    ${h.trend?`<div class="dz-spark"><div class="sh"><span class="t">14-day index trend</span><span class="v">grey band = ±1σ</span></div>${sparkline(h.trend)}</div>`:''}
+    <div class="dz-list">${list}</div>`;
+  if(h._custom){const b=document.getElementById('rm-pin');if(b)b.onclick=()=>removePin(h);}
+  document.getElementById('dossier').classList.add('open');
+}
+function closeDossier(){document.getElementById('dossier').classList.remove('open');selected=null;renderHubs();}
+window.closeDossier=closeDossier;
+
+/* ---- lane arcs ---- */
+function greatCircle(a,b,c,d,n=48){
+  const r=x=>x*Math.PI/180,g=x=>x*180/Math.PI;
+  const φ1=r(a),λ1=r(b),φ2=r(c),λ2=r(d);
+  const dl=Math.acos(Math.min(1,Math.sin(φ1)*Math.sin(φ2)+Math.cos(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1)));
+  if(!dl) return [[a,b],[c,d]];
+  const pts=[];for(let i=0;i<=n;i++){const f=i/n;
+    const A=Math.sin((1-f)*dl)/Math.sin(dl),B=Math.sin(f*dl)/Math.sin(dl);
+    const x=A*Math.cos(φ1)*Math.cos(λ1)+B*Math.cos(φ2)*Math.cos(λ2);
+    const y=A*Math.cos(φ1)*Math.sin(λ1)+B*Math.cos(φ2)*Math.sin(λ2);
+    const z=A*Math.sin(φ1)+B*Math.sin(φ2);
+    pts.push([g(Math.atan2(z,Math.sqrt(x*x+y*y))),g(Math.atan2(y,x))]);}
+  return pts;
+}
+function renderLanes(){
+  laneLayer.clearLayers();
+  if(!lanesOn||!DATA.lanes) return;
+  const max=Math.max(...DATA.lanes.map(l=>l.lane_impact_index),1);
+  DATA.lanes.forEach(l=>{
+    const t=l.lane_impact_index/max;
+    const col = t>=.66?'#E879F9':t>=.33?'#FB5A5A':'#FBBF24';
+    L.polyline(greatCircle(l.o_lat,l.o_lon,l.d_lat,l.d_lon),{
+      color:col,weight:0.7+t*2.6,opacity:0.25+t*0.5,className:'lane'})
+      .bindTooltip(`<span class="tl">${esc(l.origin)}→${esc(l.dest)}</span> · impact <b>${l.lane_impact_index}</b>`,{className:'hub-tip',sticky:true})
+      .addTo(laneLayer);
+  });
+}
+
+/* ---- add hub (session) ---- */
+function startPlacing(){placing=true;document.getElementById('addbanner').classList.add('show');
+  document.getElementById('btn-add').classList.add('on');map.getContainer().style.cursor='crosshair';}
+function stopPlacing(){placing=false;document.getElementById('addbanner').classList.remove('show');
+  document.getElementById('btn-add').classList.remove('on');map.getContainer().style.cursor='';}
+function onMapClick(e){
+  if(!placing){closeDossier();return;}
+  const lat=+e.latlng.lat.toFixed(4), lon=+e.latlng.wrap().lng.toFixed(4);
+  addSessionHub(lat,lon);
+  stopPlacing();
+}
+function addSessionHub(lat,lon,name){
+  const R=(DATA.params&&DATA.params.hub_radius_km)||250;
+  let idx=0,n=0,closest=null,peak=null;
+  DATA.events.forEach(ev=>{const d=haversine(lat,lon,ev.lat,ev.lon);
+    if(d<=R){n++;idx+=ev.severity*Math.exp(-d/((DATA.params&&DATA.params.decay_km)||150));
+      closest=closest==null?d:Math.min(closest,d);peak=peak==null?ev.severity:Math.max(peak,ev.severity);}});
+  // level from where this index falls among live hubs (no history for a session pin)
+  const live=DATA.hubs.map(x=>x.disruption_index).sort((a,b)=>a-b);
+  const q=live.length?(live.filter(v=>v<=idx).length/live.length):0;
+  let lvl = n===0?'none': q>=.9?'high': q>=.7?'elevated':'normal';
+  const code = name||('PIN'+(sessionHubs.length+1));
+  const h={hub_code:code,hub_name:name||`Custom pin @ ${lat}, ${lon}`,hub_region:'Custom',lat,lon,
+    disruption_index:+idx.toFixed(2),events_within_radius:n,
+    closest_event_km:closest==null?null:+closest.toFixed(1),peak_event_severity:peak,
+    z_score:null,alert_level:lvl,trend:null,_custom:true};
+  sessionHubs.push(h); renderHubs(); buildHubJump(); selectHub(h);
+}
+function removePin(h){sessionHubs=sessionHubs.filter(x=>x!==h);closeDossier();renderHubs();buildHubJump();}
+
+function buildHubJump(){
+  const sel=document.getElementById('hub-jump');
+  const opts=allHubs().slice().sort((a,b)=>b.disruption_index-a.disruption_index)
+    .map(h=>`<option value="${esc(h.hub_code)}${h._custom?'*':''}">${esc(h.hub_code)} — ${esc(h.hub_name)}${h._custom?' (pin)':''}</option>`).join('');
+  sel.innerHTML='<option value="">Jump to hub…</option>'+opts;
+}
+
+/* ---- events ---- */
+document.getElementById('btn-lanes').onclick=function(){lanesOn=!lanesOn;this.classList.toggle('on',lanesOn);renderLanes();};
+document.getElementById('btn-add').onclick=()=>{placing?stopPlacing():startPlacing();};
+document.getElementById('btn-add-cancel').onclick=stopPlacing;
+document.getElementById('hub-jump').onchange=function(){
+  if(!this.value)return;const cu=this.value.endsWith('*');const code=cu?this.value.slice(0,-1):this.value;
+  const h=allHubs().find(x=>x.hub_code===code && !!x._custom===cu);if(h)selectHub(h);this.value='';};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(placing)stopPlacing();else closeDossier();}});
+
+boot();
+</script>
+</body>
+</html>
