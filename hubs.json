@@ -1,0 +1,25 @@
+{
+  "_comment": "SINGLE SOURCE OF TRUTH FOR HUBS. To add a hub, copy any entry below and edit the 5 fields. The daily pipeline reads this file, so a new hub automatically appears on the map, gets news attributed to it, and can be used in lanes.json — no code or SQL changes needed. hub_code: your internal code (any string). hub_region groups markers in the legend/filter.",
+  "hubs": [
+    { "hub_code": "MEM", "hub_name": "Memphis SuperHub",          "hub_region": "US",   "lat": 35.0424, "lon": -89.9767 },
+    { "hub_code": "IND", "hub_name": "Indianapolis Hub",          "hub_region": "US",   "lat": 39.7173, "lon": -86.2944 },
+    { "hub_code": "ANC", "hub_name": "Anchorage (transpac stop)", "hub_region": "US",   "lat": 61.1743, "lon": -149.9962 },
+    { "hub_code": "OAK", "hub_name": "Oakland",                   "hub_region": "US",   "lat": 37.7213, "lon": -122.2210 },
+    { "hub_code": "EWR", "hub_name": "Newark",                    "hub_region": "US",   "lat": 40.6895, "lon": -74.1745 },
+    { "hub_code": "CDG", "hub_name": "Paris CDG (Europe hub)",    "hub_region": "EU",   "lat": 49.0097, "lon": 2.5479 },
+    { "hub_code": "FRA", "hub_name": "Frankfurt",                 "hub_region": "EU",   "lat": 50.0379, "lon": 8.5622 },
+    { "hub_code": "LEJ", "hub_name": "Leipzig",                   "hub_region": "EU",   "lat": 51.4239, "lon": 12.2364 },
+    { "hub_code": "STN", "hub_name": "London Stansted",           "hub_region": "EU",   "lat": 51.8850, "lon": 0.2350 },
+    { "hub_code": "LGG", "hub_name": "Liege",                     "hub_region": "EU",   "lat": 50.6374, "lon": 5.4432 },
+    { "hub_code": "DXB", "hub_name": "Dubai",                     "hub_region": "ME",   "lat": 25.2532, "lon": 55.3657 },
+    { "hub_code": "DOH", "hub_name": "Doha",                      "hub_region": "ME",   "lat": 25.2731, "lon": 51.6081 },
+    { "hub_code": "IKA", "hub_name": "Tehran Imam Khomeini",      "hub_region": "ME",   "lat": 35.4161, "lon": 51.1522 },
+    { "hub_code": "HKG", "hub_name": "Hong Kong",                 "hub_region": "APAC", "lat": 22.3080, "lon": 113.9185 },
+    { "hub_code": "PVG", "hub_name": "Shanghai Pudong",          "hub_region": "APAC", "lat": 31.1443, "lon": 121.8083 },
+    { "hub_code": "CAN", "hub_name": "Guangzhou",                 "hub_region": "APAC", "lat": 23.3924, "lon": 113.2988 },
+    { "hub_code": "ICN", "hub_name": "Seoul Incheon",            "hub_region": "APAC", "lat": 37.4602, "lon": 126.4407 },
+    { "hub_code": "NRT", "hub_name": "Tokyo Narita",             "hub_region": "APAC", "lat": 35.7720, "lon": 140.3929 },
+    { "hub_code": "SIN", "hub_name": "Singapore Changi",         "hub_region": "APAC", "lat": 1.3644,  "lon": 103.9915 },
+    { "hub_code": "TPE", "hub_name": "Taipei Taoyuan",          "hub_region": "APAC", "lat": 25.0777, "lon": 121.2328 }
+  ]
+}
