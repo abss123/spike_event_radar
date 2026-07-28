@@ -47,7 +47,7 @@ def cameo_name(root_code: str) -> str:
 #   the exact original number, set w_goldstein negative AND remove the abs() on the term
 #   below. All weights are data, so retune without touching any other code.
 DEFAULT_WEIGHTS = {
-    "w_goldstein": -10.0,   # conflict intensity magnitude (|Goldstein| for conflict events)
+    "w_goldstein": 5.0,   # conflict intensity magnitude (|Goldstein| for conflict events)
     "w_tone": 2.0,        # coverage negativity (|negative mention tone|)
     "w_volume": 0.0,      # aviation coverage volume,  log10(mentions+1)
     "w_sources": 0.0,     # distinct aviation sources,  log10(sources+1)
