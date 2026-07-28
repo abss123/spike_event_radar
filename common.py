@@ -10,6 +10,7 @@ minimal and lets you add hubs by editing hubs.json alone.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -53,6 +54,16 @@ DEFAULT_WEIGHTS = {
     "w_fatalities": 0.0,  # reported fatalities,        log10(fatalities+1)
     "material_conflict_bonus": 0.0,  # flat bump when QuadClass == 4 (material conflict)
 }
+
+
+def weights_fingerprint(weights: dict) -> str:
+    """Short stable hash of the active severity weights. docs/hub_daily.json (the
+    incremental baseline cache in fetch.py) stores this alongside its cached indices;
+    a mismatch means the cache was built under a different weighting scheme and must
+    not be reused, since disruption_index values from different weights aren't
+    comparable."""
+    blob = json.dumps(weights, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
 def severity_score(goldstein, tone, mentions, sources, fatalities, quad_class, weights=None) -> float:
