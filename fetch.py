@@ -3,22 +3,35 @@
 fetch.py — the once-a-day job behind the dashboard.
 
 Flow:
-  1. Run ONE parameterized BigQuery scan (query.sql) with a hard byte cap.
-  2. Compute severity, hub attribution, lane impact and z-scores locally (common.py).
-  3. Maintain a rolling 60-day baseline (docs/history.json) for the outlier z-scores.
-  4. Write docs/data.json — the file the dashboard reads.
+  1. Run ONE parameterized BigQuery scan (query.sql) per day needed: the anchor
+     (RUN_DATE) plus every day in the baseline window.
+  2. Compute severity + hub attribution locally (common.py) for each of those days,
+     zero-filling any (hub x day) with no nearby events to 0 — never a missing row.
+  3. Measure the anchor against that freshly-scored, gap-free baseline window (mean,
+     sample stddev, z, median, p25/p75) instead of the accumulated docs/history.json.
+  4. Write docs/data.json — the file the dashboard reads. docs/history.json is still
+     updated as a non-authoritative cache; nothing statistical reads it.
 
-Cost: maximum_bytes_billed guarantees the scan can never exceed the free tier; a
-too-large query fails loudly instead of billing you.
+Cost: maximum_bytes_billed guarantees every one of those per-day scans can never exceed
+the free tier; a too-large query fails loudly instead of billing you. Because the
+baseline now issues one query per baseline day (BASELINE_DAYS of them, 21 by default)
+instead of one, run DRY_RUN=1 to see the *combined* estimate before a real run.
 
 Env / config:
   GOOGLE_CLOUD_PROJECT  query project. Optional — defaults to whatever project your
                         Application Default Credentials are scoped to.
-  RUN_DATE             'YYYY-MM-DD' event day to score (default: yesterday, UTC).
-  MENTION_WINDOW_DAYS   coverage-tail sweep (default 2).
-  MAX_GB                byte cap in GB (default 30 -> ~0.03 TB, deep inside the 1 TB/mo free tier).
-  ENRICH_TITLES        '1' to scrape real headlines for shown events (default off -> URL-slug titles).
-  DRY_RUN              '1' to only print the query's estimated bytes and exit.
+  RUN_DATE              'YYYY-MM-DD' event day to score (default: yesterday, UTC).
+  MENTION_WINDOW_DAYS   coverage-tail sweep, applied to EVERY day queried (default 2).
+  MAX_GB                per-query byte cap in GB (default 30, deep inside the 1 TB/mo free tier).
+  ENRICH_TITLES         '1' to scrape real headlines for shown events (default off -> URL-slug titles).
+  DRY_RUN                '1' to print the estimated bytes for every query this run would
+                        issue (anchor + baseline window) and exit — no query is billed.
+  BASELINE_DAYS          size of the baseline window (default 21).
+  EXCLUDE_ANCHOR          '1'/'true' to exclude RUN_DATE from its own baseline (default true).
+  BASELINE_MODE          'rolling' (trailing window ending at/near the anchor, default) or
+                        'fixed' (a fixed pre-shock window, see FIXED_BASELINE_END).
+  FIXED_BASELINE_END     last day of the fixed baseline window when BASELINE_MODE=fixed
+                        (default '2026-02-24').
 
 Auth: uses Application Default Credentials — `gcloud auth application-default login`
 or GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json locally; google-github-actions/auth
@@ -43,10 +56,22 @@ OUT_FILE = ROOT / "docs" / "data.json"
 HISTORY_FILE = ROOT / "docs" / "history.json"
 QUERY_FILE = ROOT / "query.sql"
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() not in ("0", "false", "no", "")
+
+
 PARAMS = {
     "hub_radius_km": float(os.getenv("HUB_RADIUS_KM", 250)),
     "decay_km": float(os.getenv("DECAY_KM", 150)),
     "top_headlines_per_hub": int(os.getenv("TOP_HEADLINES_PER_HUB", 8)),
+    "baseline_days": int(os.getenv("BASELINE_DAYS", 21)),
+    "exclude_anchor": _env_bool("EXCLUDE_ANCHOR", True),
+    "baseline_mode": os.getenv("BASELINE_MODE", "rolling"),
+    "fixed_baseline_end": os.getenv("FIXED_BASELINE_END", "2026-02-24"),
     "weights": dict(C.DEFAULT_WEIGHTS),
 }
 HISTORY_KEEP_DAYS = 60
@@ -59,6 +84,9 @@ def get_client() -> bigquery.Client:
 
 
 def run_query(client: bigquery.Client, run_date: str, window: int, max_gb: float, dry_run: bool):
+    """dry_run=True costs nothing (BigQuery dry runs are metadata-only) and returns the
+    estimated GB instead of rows — used both for the DRY_RUN=1 CLI flag and to size the
+    per-day baseline queries before any of them actually bill bytes."""
     sql = QUERY_FILE.read_text()
     cfg = bigquery.QueryJobConfig(
         query_parameters=[
@@ -72,11 +100,39 @@ def run_query(client: bigquery.Client, run_date: str, window: int, max_gb: float
     )
     job = client.query(sql, job_config=cfg)
     if dry_run:
-        gb = job.total_bytes_processed / 1e9
-        print(f"[dry-run] this query would scan ~{gb:.2f} GB "
-              f"({gb/1000*30:.3f} TB across 30 daily runs; free tier is 1 TB/mo).")
-        return None
+        return job.total_bytes_processed / 1e9
     return list(job.result())
+
+
+def score_day(client: bigquery.Client, day: str, window: int, max_gb: float,
+              hubs: list[dict]) -> list[dict]:
+    """Query + score one calendar day, then attribute to every hub (zero-filled — a hub
+    with no nearby events still gets a 0.0 disruption_index row)."""
+    rows = run_query(client, day, window, max_gb, dry_run=False)
+    events = build_events(rows)
+    return C.rollup_hubs(events, hubs, PARAMS["hub_radius_km"], PARAMS["decay_km"])
+
+
+def baseline_window(anchor: str, baseline_days: int, exclude_anchor: bool,
+                     mode: str, fixed_end: str) -> list[str]:
+    """The list of calendar days (ISO strings, ascending) making up the baseline window.
+    Mirrors the reference SQL's window math exactly:
+      rolling + exclude_anchor : [anchor - baseline_days, anchor - 1]
+      rolling + include_anchor : [anchor - baseline_days + 1, anchor]
+      fixed                    : [fixed_end - baseline_days + 1, fixed_end]
+    """
+    a = date.fromisoformat(anchor)
+    if mode == "fixed":
+        end = date.fromisoformat(fixed_end)
+        start = end - timedelta(days=baseline_days - 1)
+    elif exclude_anchor:
+        start = a - timedelta(days=baseline_days)
+        end = a - timedelta(days=1)
+    else:
+        start = a - timedelta(days=baseline_days - 1)
+        end = a
+    n = (end - start).days + 1
+    return [(start + timedelta(days=i)).isoformat() for i in range(n)]
 
 
 def build_events(rows) -> list[dict]:
@@ -180,19 +236,42 @@ def load_history() -> dict:
     return {}
 
 
-def apply_baseline(hub_records: list[dict], history: dict, run_date: str) -> None:
-    idx_today = sorted(h["disruption_index"] for h in hub_records)
-    n = len(idx_today)
+def build_baseline_panel(client: bigquery.Client, run_date: str, anchor_records: list[dict],
+                          window: int, max_gb: float, hubs: list[dict]) -> dict:
+    """Score every day in the configured baseline window (reusing the already-scored
+    anchor day when it falls inside that window) and return {hub_code: {date: index}} —
+    every hub has exactly one zero-filled entry per day queried, including the anchor."""
+    win_dates = baseline_window(run_date, PARAMS["baseline_days"], PARAMS["exclude_anchor"],
+                                 PARAMS["baseline_mode"], PARAMS["fixed_baseline_end"])
+    panel: dict[str, dict[str, float]] = {h["hub_code"]: {} for h in hubs}
+
+    to_query = list(win_dates)
+    if run_date in to_query:
+        for h in anchor_records:
+            panel[h["hub_code"]][run_date] = h["disruption_index"]
+        to_query = [d for d in to_query if d != run_date]
+
+    for d in to_query:
+        for h in score_day(client, d, window, max_gb, hubs):
+            panel[h["hub_code"]][d] = h["disruption_index"]
+
+    for h in anchor_records:
+        panel[h["hub_code"]].setdefault(run_date, h["disruption_index"])
+
+    return {"window_dates": win_dates, "series": panel}
+
+
+def apply_baseline(hub_records: list[dict], panel: dict, run_date: str) -> None:
+    win_dates = panel["window_dates"]
+    series = panel["series"]
     for h in hub_records:
-        prior = [p["index"] for p in history.get(h["hub_code"], []) if p["date"] != run_date]
-        z = C.zscore(h["disruption_index"], prior)
-        q = (sum(1 for v in idx_today if v <= h["disruption_index"]) / n) if n else 0.0
-        h["z_score"] = z
-        h["alert_level"] = C.alert_level(h["events_within_radius"], z, q)
-        trend = [{"date": p["date"], "index": p["index"]}
-                 for p in history.get(h["hub_code"], []) if p["date"] != run_date][-13:]
-        trend.append({"date": run_date, "index": h["disruption_index"]})
-        h["trend"] = trend
+        code = h["hub_code"]
+        hist_vals = [series[code][d] for d in win_dates]  # exactly baseline_days entries
+        stats = C.baseline_stats(h["disruption_index"], hist_vals)
+        h.update(stats)
+        h["alert_level"] = C.alert_level(h["events_within_radius"], stats["z_score"])
+        trend_days = sorted(series[code].items())[-14:]  # last 14 days incl. anchor
+        h["trend"] = [{"date": d, "index": v} for d, v in trend_days]
 
 
 def update_history(hub_records: list[dict], history: dict, run_date: str) -> dict:
@@ -212,27 +291,42 @@ def main():
 
     hubs = C.load_json(HUBS_FILE)["hubs"]
     lanes_cfg = C.load_json(LANES_FILE)["lanes"]
-    print(f"[run] date={run_date} window={window}d cap={max_gb}GB hubs={len(hubs)}")
+    win_dates = baseline_window(run_date, PARAMS["baseline_days"], PARAMS["exclude_anchor"],
+                                 PARAMS["baseline_mode"], PARAMS["fixed_baseline_end"])
+    query_dates = sorted(set(win_dates) | {run_date})
+    print(f"[run] date={run_date} window={window}d cap={max_gb}GB/query hubs={len(hubs)} "
+          f"baseline_mode={PARAMS['baseline_mode']} baseline_days={PARAMS['baseline_days']} "
+          f"exclude_anchor={PARAMS['exclude_anchor']} baseline_window=[{win_dates[0]}..{win_dates[-1]}] "
+          f"queries={len(query_dates)}")
 
     client = get_client()
-    rows = run_query(client, run_date, window, max_gb, dry)
+
     if dry:
+        per_day_gb = {d: run_query(client, d, window, max_gb, dry_run=True) for d in query_dates}
+        total_gb = sum(per_day_gb.values())
+        print(f"[dry-run] anchor ({run_date}) ~{per_day_gb[run_date]:.2f} GB")
+        print(f"[dry-run] {len(query_dates)} queries this run (anchor + {len(win_dates)} baseline "
+              f"days) ~{total_gb:.2f} GB combined "
+              f"(~{total_gb/1000*30:.3f} TB across 30 daily runs; free tier is 1 TB/mo).")
         return
 
+    rows = run_query(client, run_date, window, max_gb, dry_run=False)
     events = build_events(rows)
     print(f"[data] {len(events)} deduped aviation-covered disruption events")
 
     if os.getenv("ENRICH_TITLES") == "1":
         enrich_titles(events, shown_event_ids(events, hubs))
 
-    hub_records = C.rollup_hubs(events, hubs, PARAMS["hub_radius_km"], PARAMS["decay_km"])
+    anchor_records = C.rollup_hubs(events, hubs, PARAMS["hub_radius_km"], PARAMS["decay_km"])
+    panel = build_baseline_panel(client, run_date, anchor_records, window, max_gb, hubs)
+    apply_baseline(anchor_records, panel, run_date)
+
     history = load_history()
-    apply_baseline(hub_records, history, run_date)
-    update_history(hub_records, history, run_date)
+    update_history(anchor_records, history, run_date)
     C.write_json(HISTORY_FILE, history)
 
-    lanes = C.rollup_lanes(hub_records, lanes_cfg)
-    payload = C.assemble_payload(run_date, hub_records, lanes, events, PARAMS, is_sample=False)
+    lanes = C.rollup_lanes(anchor_records, lanes_cfg)
+    payload = C.assemble_payload(run_date, anchor_records, lanes, events, PARAMS, is_sample=False)
     C.write_json(OUT_FILE, payload)
 
     s = payload["stats"]

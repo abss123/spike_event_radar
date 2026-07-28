@@ -18,6 +18,8 @@ random.seed(20260302)
 RUN_DATE = "2026-03-02"
 PARAMS = {
     "hub_radius_km": 250, "decay_km": 150, "top_headlines_per_hub": 8,
+    "baseline_days": 13, "exclude_anchor": True, "baseline_mode": "rolling",
+    "fixed_baseline_end": "2026-02-24",
     "weights": dict(C.DEFAULT_WEIGHTS),
 }
 
@@ -91,8 +93,6 @@ SPIKE = {"DXB", "DOH", "IKA"}   # z >> 3  -> extreme
 HIGH = {"CDG", "FRA"}            # z ~ 2-3 -> high
 ELEVATED = {"LEJ", "HKG", "CAN"}  # z ~ 1-2 -> elevated
 dates = [(date.fromisoformat(RUN_DATE) - timedelta(days=d)).isoformat() for d in range(13, -1, -1)]
-today_indices = [h["disruption_index"] for h in hub_records]
-sorted_idx = sorted(today_indices)
 
 for h in hub_records:
     today = h["disruption_index"]
@@ -105,11 +105,9 @@ for h in hub_records:
     else:
         center = today  # no anomaly
     hist = [max(0.0, round(random.gauss(center, center * 0.18 + 0.5), 2)) for _ in dates[:-1]]
-    z = C.zscore(today, hist)
-    # index quantile fallback (unused here since history exists, but keep contract complete)
-    q = (sorted_idx.index(today) + 1) / len(sorted_idx) if sorted_idx else 0.0
-    h["z_score"] = z
-    h["alert_level"] = C.alert_level(h["events_within_radius"], z, q)
+    stats = C.baseline_stats(today, hist)
+    h.update(stats)
+    h["alert_level"] = C.alert_level(h["events_within_radius"], stats["z_score"])
     h["trend"] = [{"date": dt, "index": v} for dt, v in zip(dates, hist + [round(today, 2)])]
 
 lanes = C.rollup_lanes(hub_records, lanes_cfg)

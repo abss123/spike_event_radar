@@ -192,38 +192,83 @@ def rollup_lanes(hub_records: list[dict], lanes: list[dict]) -> list[dict]:
 
 
 # --------------------------------------------------------------------------------------
-# Rolling baseline -> z-score -> alert level  (mirrors the notebook's outlier detection)
+# Baseline -> z-score -> alert level  (mirrors the reference SQL's outlier detection)
 # --------------------------------------------------------------------------------------
 def zscore(today: float, history_vals: list[float]) -> float | None:
-    """z = (today - mean) / stddev over the trailing window. None if < 7 prior days."""
+    """z = (today - mean) / sample stddev over a full, zero-filled baseline window.
+    None when there are fewer than 2 baseline observations, or the baseline is flat
+    (stddev == 0) — matches STDDEV_SAMP + NULLIF(stddev, 0) in the reference SQL, so a
+    degenerate flat baseline reports NULL rather than an arbitrary z."""
     vals = [v for v in history_vals if v is not None]
-    if len(vals) < 7:
+    if len(vals) < 2:
         return None
     mean = sum(vals) / len(vals)
-    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    var = sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)
     sd = math.sqrt(var)
     if sd < 1e-9:
-        return 3.0 if today > mean else 0.0  # any jump off a flat baseline is notable
+        return None
     return round((today - mean) / sd, 2)
 
 
-def alert_level(events_in_radius: int, z: float | None, index_quantile: float) -> str:
-    """Map to a 5-tier alert level. Uses z when enough history exists, else falls back
-    to where today's index ranks among today's hubs (index_quantile in [0,1])."""
+def _percentile(sorted_vals: list[float], q: float) -> float:
+    """Linear-interpolation percentile (PERCENTILE_CONT semantics). sorted_vals must be
+    non-empty and already sorted ascending."""
+    n = len(sorted_vals)
+    if n == 1:
+        return sorted_vals[0]
+    pos = q * (n - 1)
+    lo, hi = math.floor(pos), math.ceil(pos)
+    if lo == hi:
+        return sorted_vals[lo]
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (pos - lo)
+
+
+def baseline_stats(today: float, history_vals: list[float]) -> dict:
+    """Full per-hub baseline block for one anchor day: mean, sample stddev, z, median,
+    p25/p75, delta vs mean, ratio vs median, and the observation count. Mirrors
+    STDDEV_SAMP / NULLIF(stddev, 0) / PERCENTILE_CONT in the reference SQL. history_vals
+    must already be the full, zero-filled baseline window (one value per baseline day)."""
+    vals = [v for v in history_vals if v is not None]
+    n = len(vals)
+    if n == 0:
+        return {
+            "baseline_mean": None, "baseline_stddev": None, "z_score": None,
+            "baseline_median": None, "baseline_p25": None, "baseline_p75": None,
+            "delta_vs_mean": None, "ratio_vs_median": None, "baseline_n_days": 0,
+        }
+    mean = sum(vals) / n
+    sd = None
+    if n >= 2:
+        var = sum((v - mean) ** 2 for v in vals) / (n - 1)
+        sd = math.sqrt(var)
+    svals = sorted(vals)
+    median = _percentile(svals, 0.5)
+    return {
+        "baseline_mean": round(mean, 2),
+        "baseline_stddev": round(sd, 2) if sd is not None else None,
+        "z_score": zscore(today, vals),
+        "baseline_median": round(median, 2),
+        "baseline_p25": round(_percentile(svals, 0.25), 2),
+        "baseline_p75": round(_percentile(svals, 0.75), 2),
+        "delta_vs_mean": round(today - mean, 2),
+        "ratio_vs_median": round(today / median, 4) if median else None,
+        "baseline_n_days": n,
+    }
+
+
+def alert_level(events_in_radius: int, z: float | None) -> str:
+    """Map to a 5-tier alert level purely from z. A degenerate/flat baseline (z is None)
+    reports 'normal' — or 'none' if there are no nearby events — rather than fabricating
+    a tier from a same-day quantile rank."""
     if events_in_radius == 0:
         return "none"
-    if z is not None:
-        if z >= 3:
-            return "extreme"
-        if z >= 2:
-            return "high"
-        if z >= 1:
-            return "elevated"
+    if z is None:
         return "normal"
-    # cold-start fallback (fewer than 7 days of history yet)
-    if index_quantile >= 0.90:
+    if z >= 3:
+        return "extreme"
+    if z >= 2:
         return "high"
-    if index_quantile >= 0.70:
+    if z >= 1:
         return "elevated"
     return "normal"
 

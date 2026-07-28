@@ -37,7 +37,7 @@ aviation_mentions AS (
     ROUND(AVG(m.Confidence), 2)         AS avg_confidence_pct,
     AVG(m.MentionDocTone)               AS avg_mention_tone,
     MIN(m.MentionTimeDate)              AS first_mention_time,
-    MAX(a.fatalities_reported)          AS fatalities,
+    MAX(IF(a.fatalities_reported BETWEEN 0 AND 10000000, a.fatalities_reported, 0)) AS fatalities,
     ANY_VALUE(a.article_topics)         AS article_topics
   FROM `gdelt-bq.gdeltv2.eventmentions_partitioned` AS m
   INNER JOIN aviation_articles AS a

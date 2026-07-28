@@ -35,7 +35,8 @@ requirements.txt
 docs/
   index.html               ← the dashboard (single file). GitHub Pages serves this.
   data.json                ← regenerated daily by the pipeline (starts as sample data)
-  history.json             ← rolling per-hub baseline (created on first run)
+  history.json             ← non-authoritative per-hub index cache (created on first run;
+                              the z-score baseline is recomputed fresh each run instead)
 .github/workflows/daily.yml← the schedule
 ```
 
@@ -116,8 +117,25 @@ All knobs are data or environment variables — no logic to edit.
 | Headlines shown per hub | `TOP_HEADLINES_PER_HUB` env | 8 |
 | Coverage-tail sweep | `MENTION_WINDOW_DAYS` env | 2 days |
 | Event day to score | `RUN_DATE` env | yesterday (UTC) |
-| Query byte cap | `MAX_GB` env | 30 GB |
+| Query byte cap (per query) | `MAX_GB` env | 30 GB |
+| Baseline window size | `BASELINE_DAYS` env | 21 days |
+| Exclude the anchor day from its own baseline | `EXCLUDE_ANCHOR` env | true |
+| Baseline mode | `BASELINE_MODE` env | `rolling` (trailing window) or `fixed` |
+| Fixed baseline window end | `FIXED_BASELINE_END` env (used when `BASELINE_MODE=fixed`) | `2026-02-24` |
 | Severity weights | `DEFAULT_WEIGHTS` in `common.py` | Goldstein 5, tone 2 |
+
+**Baseline windows.** Every hub's z-score is measured against a full, gap-free,
+zero-filled window of `BASELINE_DAYS` daily indices, scored the same run as the anchor
+day (not the accumulated `docs/history.json`). `rolling` (default) takes the
+`BASELINE_DAYS` days trailing the anchor — excluding the anchor itself when
+`EXCLUDE_ANCHOR=true` (`[anchor-BASELINE_DAYS, anchor-1]`), or including it when false
+(`[anchor-BASELINE_DAYS+1, anchor]`). `fixed` instead always measures against the same
+`BASELINE_DAYS`-day window ending `FIXED_BASELINE_END`, useful for comparing every day
+since a shock against a fixed pre-shock baseline instead of a window that rolls past it.
+A hub with a flat (zero-variance) baseline reports `z_score: null` rather than an
+arbitrary spike — check `docs/data.json` for `baseline_mean`, `baseline_stddev`,
+`baseline_median`, `baseline_p25`/`baseline_p75`, `delta_vs_mean`, `ratio_vs_median`,
+and `baseline_n_days` alongside each hub's `z_score`.
 
 **Severity / the Goldstein weight.** Your original SQL used `w_goldstein = -5.0`
 against `ABS(LEAST(Goldstein,0))`, which makes *more* conflictual events score
@@ -131,10 +149,13 @@ the `abs()` in `severity_score()` (see the comment there). You can also switch o
 
 ## Cost & limits
 
-- **BigQuery:** partition + column pruning means each daily scan reads only what it
-  needs — a few GB. `MAX_GB=30` caps it far below the **1 TB/month free tier**; a
-  query that would exceed the cap fails instead of billing. Check the exact bytes with
-  a dry run (below).
+- **BigQuery:** partition + column pruning means each individual day's scan reads only
+  what it needs — a few GB. Every run now queries the anchor day *and* its baseline
+  window (`BASELINE_DAYS` extra day-scans, 21 by default), so `MAX_GB=30` caps every one
+  of those queries individually, not the run as a whole. Run `DRY_RUN=1 python fetch.py`
+  before a real run — it's free (BigQuery dry runs are metadata-only) and now prints the
+  *combined* estimate across every query the run would issue, so you can see the real
+  daily/monthly bytes against the **1 TB/month free tier** before spending anything.
 - **GitHub Actions:** a run takes a couple of minutes. Public repos get unlimited
   minutes; the Free plan's 2,000 private minutes/month is far more than ~60/month here.
 - **GitHub Pages:** free static hosting for public repos.
