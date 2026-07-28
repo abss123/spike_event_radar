@@ -82,7 +82,7 @@ PARAMS = {
     "fixed_baseline_end": os.getenv("FIXED_BASELINE_END", "2026-02-24"),
     "weights": dict(C.DEFAULT_WEIGHTS),
 }
-HISTORY_KEEP_DAYS = 21
+HISTORY_KEEP_DAYS = 28
 
 
 def get_client() -> bigquery.Client:
