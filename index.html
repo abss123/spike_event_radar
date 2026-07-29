@@ -215,6 +215,7 @@
     <button class="btn" id="btn-lanes"><span class="sw"></span>Lane arcs</button>
     <select class="sel" id="hub-jump" aria-label="Jump to hub"><option value="">Jump to hub…</option></select>
     <button class="btn" id="btn-add">＋ Add hub</button>
+    <button class="btn" id="btn-frame">⤢ Frame</button>
   </div>
 </div>
 
@@ -288,8 +289,11 @@ function initMap(){
   laneLayer = L.layerGroup().addTo(map);
   hubLayer  = L.layerGroup().addTo(map);
   map.on('click',onMapClick);
-  const pts = DATA.hubs.map(h=>[h.lat,h.lon]);
-  if(pts.length) map.fitBounds(pts,{padding:[70,70],maxZoom:4});
+  frameAll();
+}
+
+function frameAll(){
+  map.fitBounds([[-55,-170],[72,178]],{padding:[20,20]});
 }
 
 function renderHeader(){
@@ -505,6 +509,7 @@ function buildHubJump(){
 /* ---- events ---- */
 document.getElementById('btn-lanes').onclick=function(){lanesOn=!lanesOn;this.classList.toggle('on',lanesOn);renderLanes();};
 document.getElementById('btn-add').onclick=()=>{placing?stopPlacing():startPlacing();};
+document.getElementById('btn-frame').onclick=frameAll;
 document.getElementById('btn-add-cancel').onclick=stopPlacing;
 document.getElementById('hub-jump').onchange=function(){
   if(!this.value)return;const cu=this.value.endsWith('*');const code=cu?this.value.slice(0,-1):this.value;
