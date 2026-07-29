@@ -303,7 +303,7 @@ function renderHeader(){
   const chips = [
     {n:s.events_total??'—', l:'Events tracked'},
     {n:s.hubs_in_alert??'—', l:'Hubs in alert', alert:true},
-    {n:s.top_hub??'—', l:'Peak hub'},
+    {n:s.top_hub?`${s.top_hub} (${s.top_hub_z>0?'+':''}${s.top_hub_z})`:'—', l:'Biggest spike'},
   ];
   document.getElementById('chips').innerHTML = chips.map(c=>
     `<div class="chip ${c.alert?'alert':''}"><div class="n">${esc(c.n)}</div><div class="l">${esc(c.l)}</div></div>`).join('');

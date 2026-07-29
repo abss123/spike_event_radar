@@ -290,7 +290,8 @@ def alert_level(events_in_radius: int, z: float | None) -> str:
 def assemble_payload(run_date: str, hub_records: list[dict], lanes: list[dict],
                      events: list[dict], params: dict, is_sample: bool) -> dict:
     hubs_in_alert = sum(1 for h in hub_records if h["alert_level"] in ("elevated", "high", "extreme"))
-    top_hub = max(hub_records, key=lambda h: h["disruption_index"], default=None)
+    spiking_hubs = [h for h in hub_records if h["z_score"] is not None]
+    top_hub = max(spiking_hubs, key=lambda h: h["z_score"], default=None)
     top_lane = lanes[0] if lanes else None
     return {
         "schema_version": 1,
@@ -303,6 +304,7 @@ def assemble_payload(run_date: str, hub_records: list[dict], lanes: list[dict],
             "hubs_in_alert": hubs_in_alert,
             "top_hub": (top_hub or {}).get("hub_code"),
             "top_hub_index": (top_hub or {}).get("disruption_index"),
+            "top_hub_z": (top_hub or {}).get("z_score"),
             "top_corridor": (top_lane or {}).get("corridor"),
         },
         "hubs": sorted(hub_records, key=lambda h: h["disruption_index"], reverse=True),
