@@ -47,7 +47,8 @@
   .hub.custom .dot{background:transparent;border:2px dashed var(--cyan);
     box-shadow:0 0 0 2px rgba(10,14,23,.85)}
   .hub.sel .dot{outline:2px solid #fff;outline-offset:3px}
-  @keyframes pulse{0%{opacity:.7;transform:scale(1)}100%{opacity:0;transform:scale(4.2)}}
+  /* ring grows to min(4.2x, a fixed ~92px cap) so large-diameter extreme hubs don't pulse into a giant blob */
+  @keyframes pulse{0%{opacity:.7;transform:scale(1)}100%{opacity:0;transform:scale(min(4.2,calc(92px / var(--r))))}}
   .hub-tip{background:var(--panel)!important;border:1px solid var(--line2)!important;color:var(--tx)!important;
     font-family:var(--mono);font-size:11px;box-shadow:var(--shadow)!important;border-radius:7px!important;
     padding:5px 9px!important}
@@ -103,6 +104,13 @@
   .lg-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:11.5px;color:var(--tx-mut)}
   .lg-row .d{width:11px;height:11px;border-radius:50%;flex:none}
   .lg-row .z{font-family:var(--mono);font-size:10px;color:var(--tx-faint);margin-left:auto;padding-left:14px}
+  .lg-size-block{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+  .lg-size-block .lt{margin-bottom:6px}
+  .lg-size{display:flex;align-items:flex-end;gap:14px}
+  .lg-size-item{display:flex;flex-direction:column;align-items:center;gap:5px}
+  .lg-size-item .sd{border-radius:50%;flex:none;background:color-mix(in srgb,var(--cyan) 22%,transparent);
+    border:1.3px solid var(--cyan)}
+  .lg-size-item .sl{font-family:var(--mono);font-size:9.5px;color:var(--tx-faint)}
   .lg-note{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:10px;color:var(--tx-faint);
     max-width:210px;line-height:1.4}
 
@@ -219,7 +227,11 @@
   <div class="lg-row"><span class="d" style="background:var(--elevated)"></span>Elevated<span class="z">z ≥ 1</span></div>
   <div class="lg-row"><span class="d" style="background:var(--normal)"></span>Normal<span class="z">below</span></div>
   <div class="lg-row"><span class="d" style="background:var(--none)"></span>No signal<span class="z">0 events</span></div>
-  <div class="lg-note">Marker size ∝ disruption index. Click a hub for the headlines driving it.</div>
+  <div class="lg-size-block">
+    <div class="lt">Marker size · |z| severity</div>
+    <div class="lg-size" id="lg-size"></div>
+  </div>
+  <div class="lg-note">Marker size ∝ spike severity (|z| vs baseline). Click a hub for the headlines driving it.</div>
 </div>
 
 <div id="dossier" class="glass" role="dialog" aria-label="Hub detail">
@@ -262,7 +274,7 @@ async function boot(){
     DATA = SAMPLE_DATA;
   }
   if(!DATA){document.getElementById('map').innerHTML='<div style="display:grid;place-items:center;height:100%;color:#8b93a7;font-family:var(--mono)">No data.json found.</div>';return;}
-  initMap(); renderHeader(); renderHubs(); renderLanes(); buildHubJump();
+  initMap(); renderHeader(); renderHubs(); renderLanes(); buildHubJump(); renderSizeLegend();
   if(DATA.is_sample){document.getElementById('sample-badge').style.display='block';}
 }
 
@@ -295,9 +307,30 @@ function renderHeader(){
 
 function allHubs(){return DATA.hubs.concat(sessionHubs);}
 
+/* marker sizing: spike severity (|z| vs baseline), area-proportional */
+const SIZE = { metric:'zscore', positiveOnly:false, gain:13, min:8, max:64 };
+function spikeMagnitude(h){
+  if (SIZE.metric === 'index') return Math.max(0, h.disruption_index||0)/8;
+  let z = h.z_score;
+  if (z === null || z === undefined) z = Math.sqrt(Math.max(0, h.disruption_index||0))/2; // custom hubs have no baseline
+  return SIZE.positiveOnly ? Math.max(0, z) : Math.abs(z);
+}
+function markerDiameter(h){
+  // area ∝ magnitude  ⇒  diameter ∝ √magnitude
+  return Math.max(SIZE.min, Math.min(SIZE.max, SIZE.gain * Math.sqrt(spikeMagnitude(h))));
+}
+
+function renderSizeLegend(){
+  const refs = [{z:1,label:'z ≈ 1'},{z:3,label:'z ≈ 3'},{z:10,label:'z ≥ 10'}];
+  document.getElementById('lg-size').innerHTML = refs.map(ref=>{
+    const d = markerDiameter({z_score:ref.z});
+    return `<div class="lg-size-item"><span class="sd" style="width:${d}px;height:${d}px"></span><span class="sl">${esc(ref.label)}</span></div>`;
+  }).join('');
+}
+
 function makeIcon(h){
   const lv = ALERT[h.alert_level]||ALERT.none;
-  const r = Math.max(9, Math.min(30, 9 + Math.sqrt(h.disruption_index||0)*2.1));
+  const r = markerDiameter(h);
   const pulse = (h.alert_level==='high'||h.alert_level==='extreme')?'pulse':'';
   const custom = h._custom?'custom':'';
   const selc = (selected && selected.hub_code===h.hub_code && selected._custom===h._custom)?'sel':'';
